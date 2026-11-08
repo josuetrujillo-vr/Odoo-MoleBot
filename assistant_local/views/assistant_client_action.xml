@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="assistant_client_action_chat" model="ir.actions.client">
+        <field name="name">Asistente</field>
+        <field name="tag">assistant_local.chat</field>
+    </record>
+</odoo>

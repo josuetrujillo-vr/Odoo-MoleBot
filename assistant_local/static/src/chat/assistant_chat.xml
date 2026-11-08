@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="assistant_local.AssistantChat" owl="1">
+        <div class="o_assistant_chat">
+            <div class="o_assistant_chat_messages">
+                <t t-if="state.loading">
+                    <div class="text-muted">Cargando mensajes...</div>
+                </t>
+                <t t-foreach="state.messages" t-as="message" t-key="message.id">
+                    <div t-att-class="'o_assistant_message ' + (message.role === 'assistant' ? 'o_assistant_message_assistant' : 'o_assistant_message_user')">
+                        <span class="o_assistant_message_role" t-esc="message.role === 'assistant' ? 'Asistente' : 'Usuario'"/>
+                        <p class="o_assistant_message_body" t-esc="message.body"/>
+                    </div>
+                </t>
+                <t t-if="!state.loading &amp;&amp; (!state.messages || state.messages.length === 0)">
+                    <div class="text-muted">No hay mensajes en esta conversación.</div>
+                </t>
+            </div>
+
+            <t t-if="state.unavailable">
+                <div class="alert alert-warning" role="alert">
+                    El asistente no está disponible en este momento.
+                </div>
+            </t>
+            <t t-if="state.error">
+                <div class="alert alert-danger" role="alert" t-esc="state.error"/>
+            </t>
+
+            <div class="o_assistant_chat_composer">
+                <textarea
+                    class="form-control"
+                    rows="3"
+                    t-model="state.draft"
+                    t-on-keydown="onInputKeydown"
+                    maxlength="4000"
+                    aria-label="Mensaje"
+                    t-att-disabled="state.loading || state.sending"
+                    placeholder="Escribe un mensaje..."/>
+                <button
+                    type="button"
+                    class="btn btn-primary mt-2"
+                    t-on-click="submit"
+                    t-att-disabled="!canSend">
+                    Enviar
+                </button>
+            </div>
+        </div>
+    </t>
+</templates>

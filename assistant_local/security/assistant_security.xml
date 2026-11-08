@@ -1,0 +1,17 @@
+<odoo>
+    <record id="assistant_conversation_owner_rule" model="ir.rule">
+        <field name="name">Assistant conversations: owner and company</field>
+        <field name="model_id" ref="model_assistant_conversation"/>
+        <field name="domain_force">[('user_id', '=', user.id), ('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="assistant_message_owner_rule" model="ir.rule">
+        <field name="name">Assistant messages: owner and company</field>
+        <field name="model_id" ref="model_assistant_message"/>
+        <field name="domain_force">[('conversation_id.user_id', '=', user.id), ('conversation_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="assistant_audit_owner_rule" model="ir.rule">
+        <field name="name">Assistant audit: owner and company</field>
+        <field name="model_id" ref="model_assistant_audit"/>
+        <field name="domain_force">[('user_id', '=', user.id), ('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

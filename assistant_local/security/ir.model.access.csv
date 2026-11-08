@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_assistant_conversation_user,assistant.conversation user,model_assistant_conversation,base.group_user,1,1,1,1
+access_assistant_message_user,assistant.message user,model_assistant_message,base.group_user,1,0,1,0
+access_assistant_audit_user,assistant.audit user,model_assistant_audit,base.group_user,1,0,0,0

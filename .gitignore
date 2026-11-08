@@ -1,0 +1,34 @@
+# Local state, data and credentials
+.runtime/
+.test-data*/
+.test-deps/
+.test-db-name*
+*.log
+*.db
+*.sqlite*
+*.dump
+*.backup
+*.sql
+*.env
+.env*
+*.conf
+*.pem
+*.key
+*.p12
+*.pfx
+*.gguf
+*.exe
+*.dll
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+# Local handoffs and machine-specific test artifacts
+/HANDOFF.md
+/MOLE_HANDOFF.md
+/docs/progress.md
+/docs/mole-modelo-antigravity-report.md
+/assistant_local_mole/README.md
+/tools/create_antigravity_db.py
+/tools/setup_mole_demo.py

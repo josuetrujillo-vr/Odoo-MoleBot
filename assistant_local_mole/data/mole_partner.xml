@@ -1,0 +1,7 @@
+<odoo>
+    <record id="partner_mole" model="res.partner">
+        <field name="name">Mole</field>
+        <field name="active" eval="True"/>
+        <field name="company_id" eval="False"/>
+    </record>
+</odoo>
