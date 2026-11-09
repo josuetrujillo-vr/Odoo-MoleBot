@@ -1,6 +1,13 @@
 from datetime import date
 
+from unittest.mock import patch
+
+from odoo import fields
 from odoo.tests import TransactionCase, new_test_user, tagged
+
+
+def _user(env, **kwargs):
+    return new_test_user(env, context={"no_reset_password": True}, **kwargs)
 
 
 @tagged("post_install", "-at_install")
@@ -8,13 +15,13 @@ class TestHrVacationCapability(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.basic_user = new_test_user(
+        cls.basic_user = _user(
             cls.env, login="assistant_hr_basic", groups="base.group_user"
         )
-        cls.peer_user = new_test_user(
+        cls.peer_user = _user(
             cls.env, login="assistant_hr_peer", groups="base.group_user"
         )
-        cls.no_employee_user = new_test_user(
+        cls.no_employee_user = _user(
             cls.env, login="assistant_hr_no_employee", groups="base.group_user"
         )
 
@@ -36,6 +43,160 @@ class TestHrVacationCapability(TransactionCase):
         capabilities = self.env["assistant.capability"]._get_capabilities()
         self.assertIn("hr.vacation.balance.get_own", capabilities)
         self.assertEqual(capabilities["hr.vacation.balance.get_own"][0], {})
+
+    def test_authorized_named_balance_matches_lft_field(self):
+        hr_user = _user(self.env, login="assistant_hr_officer", groups="base.group_user,hr.group_hr_user")
+        result = self._capability(hr_user)._execute_capability(
+            "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+        )
+        self.assertEqual(result["available_days"], self.peer_employee.with_user(hr_user).lft_available_days)
+        self.assertEqual(result["employee"], self.peer_employee.name)
+
+    def test_named_balance_performs_no_business_writes(self):
+        hr_user = _user(self.env, login="assistant_hr_readonly", groups="base.group_user,hr.group_hr_user")
+        employee = self.peer_employee
+        before = employee.read(["lft_hire_date", "lft_allocation_id"])
+        self._capability(hr_user)._execute_capability(
+            "hr.vacation.balance.get_by_name", {"name": employee.name}
+        )
+        employee.invalidate_recordset()
+        self.assertEqual(employee.read(["lft_hire_date", "lft_allocation_id"]), before)
+
+    def test_named_balance_with_visible_and_hidden_approved_leave(self):
+        hr_user = _user(self.env, login="assistant_hr_leave_visibility", groups="base.group_user,hr.group_hr_user,hr_holidays.group_hr_holidays_user")
+        with patch.object(fields.Date, "today", return_value=date(2026, 9, 16)):
+            leave = self.env["hr.leave"].create({
+                "name": "Synthetic approved leave",
+                "employee_id": self.peer_employee.id,
+                "holiday_status_id": self.env.ref("l10n_mx_hr_holidays_lft.leave_type_lft_vacation").id,
+                "request_date_from": date(2026, 9, 7),
+                "request_date_to": date(2026, 9, 11),
+            })
+            leave.action_approve()
+            self.assertEqual(leave.state, "validate")
+            self.peer_employee.invalidate_recordset()
+            expected = self.peer_employee.lft_available_days
+            self.assertGreater(self.peer_employee.lft_approved_days, 0)
+            result = self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+            )
+            self.assertEqual(result["available_days"], expected)
+            self.env["ir.rule"].create({
+                "name": "Assistant test exclude leave",
+                "model_id": self.env["ir.model"]._get_id("hr.leave"),
+                "domain_force": "[('id', '!=', %s)]" % leave.id,
+            })
+            self.env.invalidate_all()
+            with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+                self._capability(hr_user)._execute_capability(
+                    "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+                )
+
+    def test_named_balance_rejects_hidden_calendar_exclusion(self):
+        hr_user = _user(self.env, login="assistant_hr_calendar_visibility", groups="base.group_user,hr.group_hr_user,hr_holidays.group_hr_holidays_user")
+        with patch.object(fields.Date, "today", return_value=date(2026, 9, 16)):
+            leave = self.env["hr.leave"].create({
+                "name": "Synthetic leave for calendar",
+                "employee_id": self.peer_employee.id,
+                "holiday_status_id": self.env.ref("l10n_mx_hr_holidays_lft.leave_type_lft_vacation").id,
+                "request_date_from": date(2026, 9, 7), "request_date_to": date(2026, 9, 11),
+            })
+            leave.action_approve()
+            calendar_leave = self.env["resource.calendar.leaves"].create({
+                "name": "Synthetic holiday",
+                "calendar_id": self.peer_employee.resource_calendar_id.id,
+                "date_from": "2026-09-09 00:00:00", "date_to": "2026-09-09 23:59:59",
+            })
+            self.env["ir.rule"].create({
+                "name": "Assistant hide calendar exclusion",
+                "model_id": self.env["ir.model"]._get_id("resource.calendar.leaves"),
+                "domain_force": "[('id', '!=', %s)]" % calendar_leave.id,
+            })
+            self.env.invalidate_all()
+            with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+                self._capability(hr_user)._execute_capability(
+                    "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+                )
+
+    def test_named_balance_rejects_hidden_calendar_attendance(self):
+        hr_user = _user(self.env, login="assistant_hr_hidden_attendance", groups="base.group_user,hr.group_hr_user,hr_holidays.group_hr_holidays_user")
+        attendance = self.peer_employee.resource_calendar_id.attendance_ids.filtered(lambda item: not item.display_type)[:1]
+        self.assertTrue(attendance)
+        self.env["ir.rule"].create({
+            "name": "Assistant hide calendar attendance",
+            "model_id": self.env["ir.model"]._get_id("resource.calendar.attendance"),
+            "domain_force": "[('id', '!=', %s)]" % attendance.id,
+        })
+        self.env.invalidate_all()
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+            )
+
+    def test_named_balance_rejects_extra_arguments(self):
+        hr_user = _user(self.env, login="assistant_hr_arguments", groups="base.group_user,hr.group_hr_user")
+        with self.assertRaises(ValueError):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name, "employee_id": self.employee.id}
+            )
+
+    def test_regular_user_cannot_read_named_balance(self):
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(self.basic_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+            )
+
+    def test_named_balance_rejects_invalid_and_ambiguous_names(self):
+        hr_user = _user(self.env, login="assistant_hr_ambiguous", groups="base.group_user,hr.group_hr_user")
+        self.env["hr.employee"].create({"name": self.peer_employee.name})
+        for name in ("", "A", "Nombre Inexistente", self.peer_employee.name):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+                self._capability(hr_user)._execute_capability(
+                    "hr.vacation.balance.get_by_name", {"name": name}
+                )
+
+    def test_named_balance_rejects_hidden_homonym(self):
+        hr_user = _user(self.env, login="assistant_hr_hidden_duplicate", groups="base.group_user,hr.group_hr_user")
+        duplicate = self.env["hr.employee"].create({"name": self.peer_employee.name})
+        self.env["ir.rule"].create({
+            "name": "Assistant hide duplicate",
+            "model_id": self.env["ir.model"]._get_id("hr.employee"),
+            "domain_force": "[('id', '!=', %s)]" % duplicate.id,
+        })
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+            )
+
+    def test_named_balance_rejects_missing_lft_hire_date(self):
+        hr_user = _user(self.env, login="assistant_hr_no_hire_date", groups="base.group_user,hr.group_hr_user")
+        employee = self.env["hr.employee"].create({"name": "Employee No Hire Date"})
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": employee.name}
+            )
+
+    def test_named_balance_rejects_other_company(self):
+        hr_user = _user(self.env, login="assistant_hr_company", groups="base.group_user,hr.group_hr_user")
+        company = self.env["res.company"].create({"name": "Assistant other company"})
+        employee = self.env["hr.employee"].create({"name": "Other Company Person", "company_id": company.id})
+        hr_user.write({"company_ids": [(4, company.id)]})
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": employee.name}
+            )
+
+    def test_named_balance_respects_employee_record_rule(self):
+        hr_user = _user(self.env, login="assistant_hr_rule", groups="base.group_user,hr.group_hr_user")
+        self.env["ir.rule"].create({
+            "name": "Assistant test exclude employee",
+            "model_id": self.env["ir.model"]._get_id("hr.employee"),
+            "domain_force": "[('id', '!=', %s)]" % self.peer_employee.id,
+        })
+        with self.assertRaisesRegex(ValueError, "No se puede consultar el saldo"):
+            self._capability(hr_user)._execute_capability(
+                "hr.vacation.balance.get_by_name", {"name": self.peer_employee.name}
+            )
 
     def test_basic_user_receives_own_balance(self):
         result = self._capability(self.basic_user)._execute_capability(

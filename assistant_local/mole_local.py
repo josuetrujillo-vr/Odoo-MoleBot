@@ -51,6 +51,20 @@ _PROPER_NAME_AFTER_PREP = re.compile(r"\b(?:de|del|para|a)\s+([A-ZÁÉÍÓÚ][a-
 _DE_WORD = re.compile(r"\b(?:de|del|para)\s+([a-z]+)\b")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
+_NAMED_QUERY = re.compile(
+    r"^\s*(?:¿\s*)?(?:(?:[Cc]u[aá]l\s+es\s+el\s+)?[Ss]aldo\s+de\s+vacaciones\s+(?:de|para)|"
+    r"(?:[Cc]u[aá]ntos?\s+d[ií]as\s+de\s+vacaciones\s+(?:tiene|le\s+tocan\s+a))"
+    r")\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:[ '\-](?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+|de|del|la|las|los))*)\s*[?.¿]*\s*$"
+)
+
+
+def named_vacation_target(question):
+    """Extract only an explicitly named, literal target from a narrow question."""
+    if not isinstance(question, str) or len(question) > 4000 or "\x00" in question:
+        return None
+    match = _NAMED_QUERY.fullmatch(question)
+    return match.group(1) if match else None
+
 
 def _normalize(text):
     return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))

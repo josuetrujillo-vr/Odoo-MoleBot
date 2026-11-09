@@ -1,3 +1,5 @@
+from datetime import date
+
 from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import TransactionCase, new_test_user
@@ -8,8 +10,8 @@ class TestMoleDiscuss(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.alice = new_test_user(cls.env, login="mole_alice", groups="base.group_user")
-        cls.bob = new_test_user(cls.env, login="mole_bob", groups="base.group_user")
+        cls.alice = new_test_user(cls.env, login="mole_alice", groups="base.group_user", context={"no_reset_password": True})
+        cls.bob = new_test_user(cls.env, login="mole_bob", groups="base.group_user", context={"no_reset_password": True})
         cls.mole_partner = cls.env.ref("assistant_local_mole.partner_mole")
 
     def _ensure(self, user):
@@ -113,3 +115,38 @@ class TestMoleDiscuss(TransactionCase):
         channel.invalidate_recordset()
         last = channel.message_ids.sorted(key=lambda item: item.id)[-1]
         self.assertNotIn("500", last.body)
+
+    def test_model_cannot_choose_named_employee(self):
+        channel = self._ensure(self.alice)
+        provider = self.env["assistant.inference"].with_user(self.alice)
+        capability = self.env["assistant.capability"].with_user(self.alice)
+        with patch.object(type(provider), "_chat", return_value={
+            "tool_calls": [{"function": {"name": "hr.vacation.balance.get_by_name", "arguments": {"name": "Invented Person"}}}],
+        }), patch.object(type(capability), "_execute_capability") as execute:
+            channel.with_user(self.alice).message_post(body="Hola", message_type="comment")
+        execute.assert_not_called()
+
+    def test_named_query_ignores_forged_model_arguments(self):
+        channel = self._ensure(self.alice)
+        capability = self.env["assistant.capability"].with_user(self.alice)
+        with patch.object(type(capability), "_execute_capability", return_value={"employee": "Ana Pérez", "available_days": 12}) as execute:
+            channel.with_user(self.alice).message_post(body="Saldo de vacaciones de Ana Pérez", message_type="comment")
+        execute.assert_called_once_with("hr.vacation.balance.get_by_name", {"name": "Ana Pérez"})
+
+    def test_named_discuss_uses_real_lft_and_denies_regular_user(self):
+        officer = new_test_user(self.env, login="mole_hr_officer", groups="base.group_user,hr.group_hr_user,hr_holidays.group_hr_holidays_user", context={"no_reset_password": True})
+        employee = self.env["hr.employee"].create({"name": "Mole Named Employee", "lft_hire_date": date(2020, 1, 1)})
+        expected = employee.lft_available_days
+        before = employee.read(["lft_hire_date", "lft_allocation_id"])
+        for user, permitted in ((officer, True), (self.alice, False)):
+            channel = self._ensure(user)
+            channel.with_user(user).message_post(body="Saldo de vacaciones de Mole Named Employee", message_type="comment")
+            channel.invalidate_recordset()
+            reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+            if permitted:
+                self.assertIn("Días disponibles: %s" % expected, reply)
+            else:
+                self.assertIn("No se puede consultar el saldo", reply)
+                self.assertNotIn("Días disponibles", reply)
+        employee.invalidate_recordset()
+        self.assertEqual(employee.read(["lft_hire_date", "lft_allocation_id"]), before)

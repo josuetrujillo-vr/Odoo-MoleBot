@@ -13,7 +13,7 @@ class TestMoleRealModel(TransactionCase):
         model = os.environ.get("MOLE_MODEL_PATH")
         if not executable or not model:
             self.skipTest("Local model paths were not provided")
-        user = new_test_user(self.env, login="mole_real_user", groups="base.group_user")
+        user = new_test_user(self.env, login="mole_real_user", groups="base.group_user", context={"no_reset_password": True})
         employee = self.env["hr.employee"].create({
             "name": "Synthetic Mole Employee", "user_id": user.id,
             "company_id": self.env.company.id, "lft_hire_date": date(2020, 1, 1),

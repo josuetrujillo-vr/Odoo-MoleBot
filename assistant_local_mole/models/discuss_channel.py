@@ -1,6 +1,9 @@
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import html2plaintext
+from odoo.addons.assistant_local.mole_local import (
+    is_safe_own_vacation_query, named_vacation_target,
+)
 
 
 MOLE_PARTNER_XMLID = "assistant_local_mole.partner_mole"
@@ -129,6 +132,20 @@ class AssistantMoleDiscussChannel(models.Model):
         owner = self.assistant_mole_owner_id
         mole_partner = self._mole_partner()
 
+        question = html2plaintext(message.body or "")
+        target = named_vacation_target(question)
+        if target:
+            try:
+                result = self.env["assistant.capability"]._execute_capability(
+                    "hr.vacation.balance.get_by_name", {"name": target}
+                )
+                self._assistant_mole_post_message(self._format_vacation_balance(result))
+            except (UserError, ValidationError, ValueError, AccessError):
+                self._assistant_mole_post_error(
+                    "No se puede consultar el saldo con esos datos o permisos."
+                )
+            return
+
         # Build a short conversation from recent messages
         recent = self.message_ids.sorted(key=lambda m: m.id)[-8:]
         messages = []
@@ -204,6 +221,8 @@ class AssistantMoleDiscussChannel(models.Model):
             arguments = function.get("arguments", {})
             if name != ALLOWED_CAPABILITY:
                 # Hard block: never run stock/accounting/other capabilities from Mole
+                continue
+            if not is_safe_own_vacation_query(question):
                 continue
             if not isinstance(arguments, dict):
                 continue
