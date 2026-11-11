@@ -55,7 +55,8 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _NAMED_QUERY = re.compile(
     r"^\s*(?:¿\s*)?(?:(?:[Cc]u[aá]l\s+es\s+el\s+)?[Ss]aldo\s+de\s+vacaciones\s+(?:de|para)|"
     r"(?:[Cc]u[aá]ntos?\s+d[ií]as\s+de\s+vacaciones\s+(?:tiene|le\s+tocan\s+a))"
-    r")\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:[ '\-](?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+|de|del|la|las|los))*)\s*[?.¿]*\s*$"
+    r")\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'\-]*(?:\s+(?:[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'\-]*|de|del|la|las|los|y|e))*?)\s*[?.¿]*\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -223,7 +224,7 @@ def supported_plans(question, catalog):
         r'numero de (?:los |las )?|'
         r'hay (?:algun|algunos|alguna|algunas)? )'
     )
-    count_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+    count_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta)?'
 
     list_prefixes = (
         r'(?:(?:cuales|que) son (?:los |las )?|'
@@ -238,7 +239,7 @@ def supported_plans(question, catalog):
         r'consultar (?:los |las |el |la )?|'
         r'quienes son (?:los |las )?)'
     )
-    list_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+    list_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta)?'
 
     read_prefixes = (
         r'(?:(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'

@@ -1,3 +1,5 @@
+import re
+
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import html2plaintext
@@ -247,7 +249,6 @@ class AssistantMoleDiscussChannel(models.Model):
         engine = self.env["assistant.general.query"]
         provider = self.env["assistant.inference"]
         try:
-            import re
             from odoo.addons.assistant_local.models.general_query import SENSITIVE
             from odoo.addons.assistant_local.mole_local import _normalize
 
@@ -263,12 +264,17 @@ class AssistantMoleDiscussChannel(models.Model):
                 )
                 return
 
-            if re.search(r"(?:hola|buenos dias|buenas tardes|buenas noches|que tal|saludos|ayuda|que puedes hacer|como funcionas)", norm_q):
+            if re.search(r"(?:hola|buenos dias|buenas tardes|buenas noches|que tal|saludos|ayuda|que puedes hacer|como funcionas|que puedes responder|que sabes hacer|que haces|en que me puedes ayudar)", norm_q):
                 self._assistant_mole_post_message(
                     "¡Hola! Soy Mole, tu asistente en Odoo. Puedo ayudarte a consultar información según tus permisos en el sistema "
                     "(por ejemplo: contactos, productos, pedidos de venta, compras, tareas, tu saldo de vacaciones y más). "
                     "Puedes preguntarme cuántos o cuáles registros hay, o pedir información de uno en específico indicando su nombre entre comillas."
                 )
+                return
+
+            stock_reply = self._assistant_mole_try_stock_query(question, norm_q)
+            if stock_reply:
+                self._assistant_mole_post_message(stock_reply)
                 return
 
             policy = engine._catalog(include_denied=True)
@@ -285,7 +291,9 @@ class AssistantMoleDiscussChannel(models.Model):
                 plan = candidates[0]
             if plan is None:
                 self._assistant_mole_post_error(
-                    "No entendí la consulta; especifica qué deseas consultar o contar y cualquier nombre entre comillas."
+                    "No entendí la consulta. Puedes pedirme, por ejemplo: cuántos productos/contactos hay, "
+                    "mostrar/listar registros, información de un registro con nombre entre comillas, "
+                    "o tu saldo de vacaciones / el saldo de vacaciones de una persona (nombre completo)."
                 )
                 return
             result = engine._execute(plan, question)
@@ -298,6 +306,84 @@ class AssistantMoleDiscussChannel(models.Model):
             self._assistant_mole_post_error("No tienes permiso para consultar esos registros.")
         except (UserError, ValidationError, ValueError, OSError, RuntimeError):
             self._assistant_mole_post_error("No se pudo procesar la consulta general; no se inventaron datos.")
+
+    def _assistant_mole_try_stock_query(self, question, norm_q):
+        # Best-effort helper for common "cuánto hay en existencia / en qué ubicación" questions.
+        if not isinstance(question, str):
+            return None
+        stock_terms = ("existencia", "existencias", "en stock", "stock", "ubicacion", "ubicación", "almacen", "almacén")
+        qty_terms = ("cuanto", "cuánto", "cuanta", "cuánta", "cuantos", "cuántos", "cuantas", "cuántas", "hay", "disponible", "disponibles")
+        if not any(t in norm_q for t in stock_terms) or not any(t in norm_q for t in qty_terms):
+            return None
+        quoted = re.findall(r'"([^"\r\n]{1,120})"', question)
+        if len(quoted) != 1:
+            return None
+        product_name = quoted[0].strip()
+        if not product_name:
+            return None
+        Product = self.env["product.product"].sudo(False)
+        Quant = self.env["stock.quant"].sudo(False)
+        # Search product by exact or ilike name (respecting ACLs/rules)
+        try:
+            Product.check_access_rights("read", raise_exception=True)
+            Quant.check_access_rights("read", raise_exception=True)
+        except AccessError:
+            raise
+        except Exception:
+            return None
+        products = Product.search([("name", "=", product_name)], limit=5)
+        if not products:
+            products = Product.search([("name", "ilike", product_name)], limit=5)
+        if not products:
+            return "No se encontró un producto con nombre \"%s\"." % product_name
+        if len(products) > 1:
+            lines = ["Se encontraron varios productos para \"%s\": " % product_name]
+            for p in products[:5]:
+                lines.append("• %s" % (p.display_name or p.name))
+            lines.append("Especifica el nombre exacto entre comillas.")
+            return "\n".join(lines)
+        product = products[0]
+        # Try to report quants in internal locations when possible
+        domain = [("product_id", "=", product.id)]
+        if "location_id" in Quant._fields:
+            try:
+                domain.append(("location_id.usage", "in", ["internal", "transit"]))
+            except Exception:
+                pass
+        try:
+            quants = Quant.search_read(domain, fields=["location_id", "quantity", "available_quantity", "reserved_quantity", "lot_id"], limit=20)
+        except Exception:
+            # fallback without extra fields
+            try:
+                quants = Quant.search_read([("product_id", "=", product.id)], fields=["location_id", "quantity"], limit=20)
+            except Exception:
+                return None
+        if not quants:
+            return "Producto: %s\nNo hay existencias visibles en ubicaciones internas." % (product.display_name or product.name)
+        lines = ["Existencias de: %s" % (product.display_name or product.name)]
+        total = 0.0
+        for q in quants:
+            loc = q.get("location_id")
+            loc_name = loc[1] if isinstance(loc, (list, tuple)) and len(loc) > 1 else str(loc or "-")
+            qty = q.get("quantity")
+            if qty is None:
+                qty = q.get("available_quantity", 0.0)
+            try:
+                total += float(qty or 0.0)
+            except Exception:
+                pass
+            extra = []
+            if q.get("available_quantity") is not None and q.get("available_quantity") != q.get("quantity"):
+                extra.append("disponible: %s" % q.get("available_quantity"))
+            if q.get("lot_id"):
+                lot = q.get("lot_id")
+                lot_name = lot[1] if isinstance(lot, (list, tuple)) and len(lot) > 1 else lot
+                extra.append("lote/serie: %s" % lot_name)
+            suffix = (" (%s)" % ", ".join(extra)) if extra else ""
+            lines.append("• %s: %s%s" % (loc_name, qty, suffix))
+        lines.append("Total visible: %s" % total)
+        lines.append("Se aplican tus permisos y reglas.")
+        return "\n".join(lines)
 
     def _format_vacation_balance(self, result):
         if not isinstance(result, dict):
