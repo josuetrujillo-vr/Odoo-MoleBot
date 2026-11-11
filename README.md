@@ -18,6 +18,58 @@ No se implementa la solicitud de vacaciones mediante el asistente. Las consultas
 
 Odoo 18 y sus dependencias, PostgreSQL local, Python compatible con la instalación de Odoo y los addons requeridos en el `addons_path`. Para vacaciones es necesario instalar por separado `l10n_mx_hr_holidays_lft` y verificar su compatibilidad. El backend de clasificación `llama_cpp_cli` actual requiere Windows, `pywin32`, un `llama-completion.exe` compatible y un modelo GGUF local compatible; ninguno se distribuye aquí. Se ha experimentado con Qwen2.5 1.5B Instruct GGUF. Revise licencias y procedencia de cada dependencia.
 
+## Quick Start
+
+Ruta mínima para arrancar el MVP en una máquina local. Esta sección indica exactamente qué descargar y cómo hacerlo; los pasos de preparación aislada de Odoo, instalación de módulos y ejecución de pruebas se detallan en «Instalación de evaluación».
+
+### 1. Descargar el runtime y el modelo local
+
+El backend de clasificación por CLI (`llama_cpp_cli`) requiere Windows, `pywin32`, un `llama-completion.exe` compatible y un modelo GGUF local compatible. Ninguno se distribuye en este repositorio: se descargan de fuentes oficiales.
+
+**Runtime llama.cpp (`llama-completion.exe`):**
+
+1. Descargar el release oficial de Windows CPU x64, versión `b12192`:
+   - Archivo: `llama-b12192-bin-win-cpu-x64.zip`
+   - URL: https://github.com/ggml-org/llama.cpp/releases/download/b12192/llama-b12192-bin-win-cpu-x64.zip
+   - Tamaño: 24,757,895 bytes; SHA-256: `b465952e4df16e77dc74a45224c4bbbed4bb20c05ecadc311c65d9f3ca84eb22` (verificado).
+2. Extraer el ejecutable y sus DLLs, y colocar `llama-completion.exe` en la ruta configurada (en la PC de desarrollo quedó en `.runtime\llama-cpu\llama-completion.exe`, junto con las tres DLL de Visual C++ redistributable con firma Microsoft válida copiadas desde el paquete verificado, porque el runtime global antiguo provocaba caídas).
+
+**Modelo Qwen2.5 1.5B Instruct (GGUF):**
+
+1. Descargar desde la fuente oficial de modelos GGUF de la familia Qwen: `Qwen/Qwen2.5-1.5B-Instruct-GGUF`.
+2. Archivo exacto: `qwen2.5-1.5b-instruct-q4_k_m.gguf`.
+3. Tamaño: 1,117,320,736 bytes (~1,1 GB); SHA-256: `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e` (verificado).
+4. Colocar el archivo en la ruta configurada (por ejemplo `.runtime\qwen2.5-1.5b-instruct-q4_k_m.gguf`).
+
+**Ollama (experimental, no validado):**
+
+- Release oficial `v0.40.15`, archivo `ollama-windows-amd64.zip` (~1,6 GB), URL: https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip, SHA-256: `9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6`.
+- La descarga fue interrumpida por velocidad muy baja; el archivo `.runtime\ollama-windows-amd64.zip` presente es parcial y no debe ejecutarse. No se instaló Ollama ni se descargó un modelo. El transporte HTTP experimental para un servicio Ollama local sigue disponible.
+
+### 2. Configurar las variables de entorno del proceso Odoo
+
+Backend CLI de llama.cpp:
+
+```powershell
+$env:ASSISTANT_LOCAL_BACKEND = "llama_cpp_cli"
+$env:MOLE_LLAMA_EXE = "C:\Users\truji\odoo-assistant-local\.runtime\llama-cpu\llama-completion.exe"
+$env:MOLE_MODEL_PATH = "C:\Users\truji\odoo-assistant-local\.runtime\qwen2.5-1.5b-instruct-q4_k_m.gguf"
+```
+
+Transporte HTTP experimental hacia un servicio Ollama local (loopback):
+
+```powershell
+$env:ASSISTANT_LOCAL_BACKEND = "http"
+$env:ASSISTANT_LOCAL_URL = "http://127.0.0.1:11434"
+$env:ASSISTANT_LOCAL_MODEL = "<nombre-del-modelo-en-el-servicio-ollama>"
+```
+
+Sin modelo configurado, el chat informa que la inferencia no está disponible.
+
+### 3. Continuar con la instalación
+
+Siga el resto de las secciones: «Requisitos», «Instalación de evaluación» y «Pruebas».
+
 ## Instalación de evaluación
 
 1. Prepare una instalación local aislada de Odoo 18 y PostgreSQL con datos sintéticos y sin conexión a producción. Desactive explícitamente el envío externo de correo y otros efectos externos.
