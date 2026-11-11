@@ -46,7 +46,7 @@ class TestChatApi(TransactionCase):
             self.assertEqual(result["status"], "ok")
             messages = [m["body"] for m in result["messages"]]
             self.assertIn("Hola", messages)
-            self.assertIn("Por ahora solo puedo consultar tu saldo de vacaciones.", messages)
+            self.assertTrue(any("No pude responder con una consulta verificada" in body for body in messages))
 
     def test_other_user_cannot_read_or_post(self):
         thread = self.thread.with_user(self.bob)
@@ -105,4 +105,41 @@ class TestChatApi(TransactionCase):
             with self.subTest(tool=call["function"]["name"]):
                 thread._apply_model_reply({"content": "done", "tool_calls": [call]})
                 last_msg = thread.get_chat_messages()[-1]["body"]
-                self.assertIn("Por ahora solo puedo consultar tu saldo de vacaciones", last_msg)
+                self.assertIn("No pude responder con una consulta verificada", last_msg)
+
+    def test_chat_answers_general_query_through_validated_plan(self):
+        thread = self.thread.with_user(self.alice)
+        provider = self.env["assistant.inference"].with_user(self.alice)
+        engine = self.env["assistant.general.query"].with_user(self.alice)
+        plan = {"operation": "count", "model": "product.template", "filters": []}
+        result = {
+            "operation": "count", "count": 3, "label": "Product", "companies": ["Synthetic"],
+            "active": True, "filters": [],
+        }
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            type(provider), "_chat", return_value={"role": "assistant", "content": "", "tool_calls": []}
+        ) as chat_mock, patch.object(
+            type(provider), "_general_plan", return_value=plan
+        ) as general_plan, patch.object(
+            type(engine), "_execute", return_value=result
+        ) as execute:
+            response = thread.submit_chat_message("¿Cuántos productos hay?")
+        chat_mock.assert_called_once()
+        general_plan.assert_called_once()
+        execute.assert_called_once()
+        self.assertEqual(response["status"], "ok")
+        bodies = [m["body"] for m in response["messages"]]
+        self.assertTrue(any("Registros activos visibles de Product: 3" in body for body in bodies), bodies)
+
+    def test_chat_falls_back_when_general_plan_is_declined(self):
+        thread = self.thread.with_user(self.alice)
+        provider = self.env["assistant.inference"].with_user(self.alice)
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            type(provider), "_chat", return_value={"role": "assistant", "content": "", "tool_calls": []}
+        ), patch.object(
+            type(provider), "_general_plan", return_value=None
+        ):
+            response = thread.submit_chat_message("Hola")
+        self.assertEqual(response["status"], "ok")
+        bodies = [m["body"] for m in response["messages"]]
+        self.assertTrue(any("No pude responder con una consulta verificada" in body for body in bodies), bodies)

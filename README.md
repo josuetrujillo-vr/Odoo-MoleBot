@@ -44,3 +44,5 @@ El contrato de diseño inicial está en [docs/core-contract.md](docs/core-contra
 ### Consultas generales de Mole (prototipo)
 
 Mole puede contar registros visibles de algunos modelos comerciales instalados, sujetos a tus permisos, reglas y compañías. Por ejemplo: «¿Cuántos productos hay?» o «¿Cuántos productos con nombre "Mole" hay?». El único filtro disponible es igualdad por nombre entre comillas. Las cantidades monetarias, otros criterios y modelos ambiguos requieren aclaración; la cobertura y la interpretación son limitadas.
+
+El chat responde consultas generales cuando el modelo local propone un plan estructurado sobre un catálogo restringido por ACLs del servidor; el servidor vuelve a validar el plan contra la forma reconocida de la pregunta y compila el filtro con el ORM. Si el modelo no propone, no puede expresar el criterio o falla, el chat emite un mensaje seguro sin inventar datos. Las cifras salen de Odoo bajo el usuario autenticado.

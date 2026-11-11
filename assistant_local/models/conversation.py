@@ -3,9 +3,15 @@ import json
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
+from ..general_query import format_result
+
 
 MAX_CHAT_MESSAGE_LENGTH = 4000
 MODEL_CAPABILITIES = frozenset({"hr.vacation.balance.get_own"})
+FALLBACK_REPLY = (
+    "No pude responder con una consulta verificada. Puedo ayudarte a consultar tu "
+    "saldo de vacaciones o información general de registros visibles para ti."
+)
 
 
 class AssistantConversation(models.Model):
@@ -145,6 +151,32 @@ class AssistantConversation(models.Model):
                     "No se pudo ejecutar la capacidad solicitada.",
                 )
         if not executed:
-            self.env["assistant.message"]._create_assistant_message(
-                self, "Por ahora solo puedo consultar tu saldo de vacaciones."
-            )
+            if self._try_answer_general():
+                return
+            self.env["assistant.message"]._create_assistant_message(self, FALLBACK_REPLY)
+
+    def _last_user_question(self):
+        for message in reversed(list(self.message_ids)):
+            if message.role == "user":
+                return message.body
+        return None
+
+    def _try_answer_general(self):
+        """Answer a general read question through the validated plan engine."""
+        question = self._last_user_question()
+        if not isinstance(question, str) or not question.strip():
+            return False
+        engine = self.env["assistant.general.query"]
+        provider = self.env["assistant.inference"]
+        try:
+            plan = provider._general_plan(question, engine._catalog())
+            if not isinstance(plan, dict) or plan.get("operation") not in ("count", "list", "read"):
+                return False
+            result = engine._execute(plan, question)
+            reply = format_result(result)
+        except (UserError, ValidationError, ValueError, AccessError, OSError, RuntimeError):
+            return False
+        if not isinstance(reply, str) or not reply.strip():
+            return False
+        self.env["assistant.message"]._create_assistant_message(self, reply)
+        return True

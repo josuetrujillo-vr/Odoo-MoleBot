@@ -11,6 +11,38 @@ class GeneralPlanTests(unittest.TestCase):
     def setUp(self):
         self.catalog = {'sale.order': {'state': {'type': 'selection', 'values': ['draft', 'sale']}, 'name': {'type': 'char'}}, 'product.template': {'name': {'type': 'char'}}}
 
+    def test_count_result_includes_facts_criteria_and_companies(self):
+        result = {'operation': 'count', 'count': 7, 'label': 'Product', 'companies': ['ACME'],
+                  'active': True, 'filters': []}
+        text = query.format_result(result)
+        self.assertIn('Registros activos visibles de Product: 7', text)
+        self.assertIn('Criterios: sin filtros adicionales', text)
+        self.assertIn('ACME', text)
+
+    def test_count_result_with_literal_filter(self):
+        result = {'operation': 'count', 'count': 0, 'label': 'Sale', 'companies': ['ACME'],
+                  'active': False, 'filters': [{'field': 'name', 'op': 'equals', 'value': 'ACME'}]}
+        self.assertIn('Criterios: nombre igual a "ACME"', query.format_result(result))
+
+    def test_list_result_lists_records(self):
+        result = {'operation': 'list', 'records': [{'id': 1, 'name': 'ACME'}], 'total_count': 1,
+                  'label': 'Contact', 'companies': ['ACME'], 'active': True, 'filters': []}
+        text = query.format_result(result)
+        self.assertIn('Registros visibles de Contact (mostrando 1 de 1):', text)
+        self.assertIn('• ACME', text)
+
+    def test_empty_list_and_read_results_are_reported(self):
+        empty_list = query.format_result({'operation': 'list', 'records': [], 'label': 'Contact',
+                                         'companies': ['ACME'], 'active': True, 'filters': []})
+        self.assertIn('No se encontraron', empty_list)
+        empty_read = query.format_result({'operation': 'read', 'record': None, 'label': 'Contact',
+                                         'companies': ['ACME'], 'active': True, 'filters': []})
+        self.assertIn('No se encontró', empty_read)
+
+    def test_invalid_format_results_are_rejected(self):
+        self.assertIsNone(query.format_result({'operation': 'write'}))
+        self.assertIsNone(query.format_result(None))
+
     def test_count_for_two_models(self):
         for model in self.catalog:
             plan = {'operation': 'count', 'model': model, 'filters': []}
