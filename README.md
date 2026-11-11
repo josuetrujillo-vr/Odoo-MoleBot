@@ -52,8 +52,8 @@ Backend CLI de llama.cpp:
 
 ```powershell
 $env:ASSISTANT_LOCAL_BACKEND = "llama_cpp_cli"
-$env:MOLE_LLAMA_EXE = "C:\Users\truji\odoo-assistant-local\.runtime\llama-cpu\llama-completion.exe"
-$env:MOLE_MODEL_PATH = "C:\Users\truji\odoo-assistant-local\.runtime\qwen2.5-1.5b-instruct-q4_k_m.gguf"
+$env:MOLE_LLAMA_EXE = "C:\ruta\del\proyecto\odoo-assistant-local\.runtime\llama-cpu\llama-completion.exe"
+$env:MOLE_MODEL_PATH = "C:\ruta\del\proyecto\odoo-assistant-local\.runtime\qwen2.5-1.5b-instruct-q4_k_m.gguf"
 ```
 
 Transporte HTTP experimental hacia un servicio Ollama local (loopback):
