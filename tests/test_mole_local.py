@@ -159,3 +159,16 @@ class MoleLocalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class GeneralInterpretTests(unittest.TestCase):
+    def test_generic_count_and_ambiguous_question(self):
+        catalog = {'product.template': {'label': 'Product', 'fields': {}}, 'res.partner': {'label': 'Contact', 'fields': {}}}
+        with patch.object(mole_local, '_complete', return_value='{"operation":"count","model":"product.template","filters":[]}'):
+            self.assertEqual(mole_local.interpret_general('¿Cuántos Product hay?', catalog, 'exe', 'model')['model'], 'product.template')
+            self.assertIsNone(mole_local.interpret_general('¿Cuántos Product vendidos hay?', catalog, 'exe', 'model'))
+            self.assertIsNone(mole_local.interpret_general('¿Cuántos hay?', catalog, 'exe', 'model'))
+
+    def test_invented_model_choice_is_rejected(self):
+        catalog = {'product.template': {'label': 'Product', 'fields': {}}}
+        with patch.object(mole_local, '_complete', return_value='2'):
+            self.assertIsNone(mole_local.interpret_general('¿Cuántos Product hay?', catalog, 'exe', 'model'))

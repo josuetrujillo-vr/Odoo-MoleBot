@@ -2,7 +2,7 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import html2plaintext
 from odoo.addons.assistant_local.mole_local import (
-    is_safe_own_vacation_query, named_vacation_target,
+    is_safe_own_vacation_query, named_vacation_target, supported_plans,
 )
 
 
@@ -146,6 +146,9 @@ class AssistantMoleDiscussChannel(models.Model):
                 )
             return
 
+        if not is_safe_own_vacation_query(question):
+            self._assistant_mole_general(question)
+            return
         # Build a short conversation from recent messages
         recent = self.message_ids.sorted(key=lambda m: m.id)[-8:]
         messages = []
@@ -237,10 +240,96 @@ class AssistantMoleDiscussChannel(models.Model):
                 executed_any = True
 
         if not executed_any:
-            self._assistant_mole_post_error(
-                "Por ahora solo puedo consultar tu saldo de vacaciones."
-            )
+            self._assistant_mole_post_error("No se pudo interpretar la consulta de vacaciones.")
 
+    def _assistant_mole_general(self, question):
+        engine = self.env["assistant.general.query"]
+        provider = self.env["assistant.inference"]
+        try:
+            import re
+            from odoo.addons.assistant_local.models.general_query import SENSITIVE
+            from odoo.addons.assistant_local.mole_local import _normalize
+
+            norm_q = _normalize(question)
+            sensitive_terms = list(SENSITIVE) + [
+                'contrasena', 'contraseña', 'secreto', 'clave', 'tarjeta',
+                'cuenta bancaria', 'bancario', 'bancaria', 'credencial',
+                'nip', 'pin', 'sueldo', 'nomina',
+            ]
+            if any(s in norm_q for s in sensitive_terms):
+                self._assistant_mole_post_error(
+                    "Por motivos de seguridad, no está permitido consultar campos sensibles o privados."
+                )
+                return
+
+            if re.search(r"(?:hola|buenos dias|buenas tardes|buenas noches|que tal|saludos|ayuda|que puedes hacer|como funcionas)", norm_q):
+                self._assistant_mole_post_message(
+                    "¡Hola! Soy Mole, tu asistente en Odoo. Puedo ayudarte a consultar información según tus permisos en el sistema "
+                    "(por ejemplo: contactos, productos, pedidos de venta, compras, tareas, tu saldo de vacaciones y más). "
+                    "Puedes preguntarme cuántos o cuáles registros hay, o pedir información de uno en específico indicando su nombre entre comillas."
+                )
+                return
+
+            policy = engine._catalog(include_denied=True)
+            candidates = supported_plans(question, policy)
+            if len(candidates) == 1 and policy[candidates[0]['model']].get('denied'):
+                raise AccessError("Read access denied")
+            catalog = {name: item for name, item in policy.items() if not item.get('denied')}
+            plan = None
+            try:
+                plan = provider._general_plan(question, catalog)
+            except Exception:
+                pass
+            if plan is None and len(candidates) == 1:
+                plan = candidates[0]
+            if plan is None:
+                self._assistant_mole_post_error(
+                    "No entendí la consulta; especifica qué deseas consultar o contar y cualquier nombre entre comillas."
+                )
+                return
+            result = engine._execute(plan, question)
+            op = result.get('operation', 'count')
+            if op == 'count':
+                criteria = 'nombre igual a "%s"' % result['filters'][0]['value'] if result['filters'] else 'sin filtros adicionales'
+                archived = 'activos ' if result['active'] else ''
+                self._assistant_mole_post_message(
+                    "Registros %svisibles de %s: %s. Compañías activas en el contexto: %s. "
+                    "Criterios: %s; se aplican tus permisos y reglas. Las reglas del modelo determinan el alcance por compañía."
+                    % (archived, result['label'], result['count'], ', '.join(result['companies']), criteria)
+                )
+            elif op == 'list':
+                records = result.get('records', [])
+                if not records:
+                    self._assistant_mole_post_message(
+                        "No se encontraron registros visibles de %s con esos criterios." % result['label']
+                    )
+                else:
+                    lines = ["Registros visibles de %s (mostrando %s de %s):" % (result['label'], len(records), result['total_count'])]
+                    for r in records:
+                        name = r.get('display_name') or r.get('name') or ("ID %s" % r.get('id'))
+                        lines.append("• %s" % name)
+                    lines.append("\nCompañías activas: %s. Se aplican tus permisos y reglas." % ', '.join(result['companies']))
+                    self._assistant_mole_post_message("\n".join(lines))
+            elif op == 'read':
+                record = result.get('record')
+                if not record:
+                    self._assistant_mole_post_message(
+                        "No se encontró ningún registro de %s con esos criterios." % result['label']
+                    )
+                else:
+                    title = record.get('display_name') or record.get('name') or ("ID %s" % record.get('id'))
+                    lines = ["Información de %s (%s):" % (result['label'], title)]
+                    for f, val in record.items():
+                        if f in ('id', 'display_name') or val is False or val is None or val == '':
+                            continue
+                        field_label = result.get('fields_info', {}).get(f, f)
+                        lines.append("• %s: %s" % (field_label, val))
+                    lines.append("\nCompañías activas: %s. Se aplican tus permisos y reglas." % ', '.join(result['companies']))
+                    self._assistant_mole_post_message("\n".join(lines))
+        except AccessError:
+            self._assistant_mole_post_error("No tienes permiso para consultar esos registros.")
+        except (UserError, ValidationError, ValueError, OSError, RuntimeError):
+            self._assistant_mole_post_error("No se pudo procesar la consulta general; no se inventaron datos.")
     def _format_vacation_balance(self, result):
         if not isinstance(result, dict):
             return "Saldo de vacaciones no disponible."

@@ -1,5 +1,6 @@
 """Local Windows intent classifier for the first Mole vacation capability."""
 
+import json
 import os
 import re
 import subprocess
@@ -121,6 +122,20 @@ def interpret(question, executable, model):
 
 def classify(question, executable, model):
     """Run a constrained local model; pass the question through a Windows named pipe."""
+    prompt = (
+        "<|im_start|>system\nClasifica la solicitud: VACACIONES si pregunta por sus "
+        "propios días de vacaciones, OTRA para cualquier otra cosa.\n"
+        "Ejemplos:\n¿Cuántos días de vacaciones me quedan? VACACIONES\n"
+        "Dime mi saldo de vacaciones. VACACIONES\n¿Cuándo vence mi periodo de vacaciones? VACACIONES\n"
+        "¿Cuántos días de vacaciones tiene Ana? OTRA\n¿Cuántas facturas hice? OTRA\n"
+        "Hola. OTRA\nTransfiere productos. OTRA\n<|im_end|>\n<|im_start|>user\n"
+        + question.replace("<|", "< |").replace("|>", "| >") + "<|im_end|>\n<|im_start|>assistant\n"
+    )
+    output = _complete(prompt, executable, model, 'root ::= "VACACIONES" | "OTRA"')
+    return output
+
+
+def _complete(prompt, executable, model, grammar):
     if os.name != "nt":
         raise RuntimeError("The local CLI prototype currently supports Windows only")
     executable = Path(executable).resolve(strict=True)
@@ -134,16 +149,6 @@ def classify(question, executable, model):
     pipe = win32pipe.CreateNamedPipe(
         pipe_name, win32pipe.PIPE_ACCESS_OUTBOUND,
         win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_WAIT | 8, 1, 65536, 65536, 0, None,
-    )
-    clean = question.replace("<|", "< |").replace("|>", "| >")
-    prompt = (
-        "<|im_start|>system\nClasifica la solicitud: VACACIONES si pregunta por sus "
-        "propios días de vacaciones, OTRA para cualquier otra cosa.\n"
-        "Ejemplos:\n¿Cuántos días de vacaciones me quedan? VACACIONES\n"
-        "Dime mi saldo de vacaciones. VACACIONES\n¿Cuándo vence mi periodo de vacaciones? VACACIONES\n"
-        "¿Cuántos días de vacaciones tiene Ana? OTRA\n¿Cuántas facturas hice? OTRA\n"
-        "Hola. OTRA\nTransfiere productos. OTRA\n<|im_end|>\n<|im_start|>user\n"
-        + clean + "<|im_end|>\n<|im_start|>assistant\n"
     )
     errors = []
 
@@ -159,9 +164,9 @@ def classify(question, executable, model):
             except Exception:
                 pass
 
-    cmd = [str(executable), "-m", str(model), "-f", pipe_name, "-n", "16", "-t", "4",
+    cmd = [str(executable), "-m", str(model), "-f", pipe_name, "-n", "160", "-t", "4",
            "-c", "2048", "-ngl", "0", "--temp", "0", "--grammar",
-           'root ::= "VACACIONES" | "OTRA"', "--no-display-prompt", "--simple-io",
+           grammar, "--no-display-prompt", "--simple-io",
            "--no-perf", "-no-cnv"]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -191,6 +196,148 @@ def classify(question, executable, model):
     raw = stdout.decode("utf-8", errors="replace")
     output = _ANSI_ESCAPE.sub("", raw).strip()
     output = output.removesuffix("[end of text]").removesuffix("<|im_end|>").removesuffix("<|endoftext|>").strip()
-    if output not in {"VACACIONES", "OTRA"}:
-        raise ValueError("Invalid local model output")
     return output
+
+
+
+def supported_plans(question, catalog):
+    """Match complete supported forms; never silently discard a user criterion."""
+    if not isinstance(question, str) or len(question) > 4000 or not isinstance(catalog, dict) or '\x00' in question:
+        raise ValueError('Invalid general query')
+    quoted = re.findall(r'"([^"\r\n]{1,100})"', question)
+    if len(quoted) > 1:
+        return []
+    text = re.sub(r'"([^"\r\n]{1,100})"', ' __literal__ ', question)
+    normalized = re.sub(r'\s+', ' ', _normalize(text).strip().strip('¿?¡! '))
+
+    count_prefixes = (
+        r'(?:(?:cuantos?|cuantas?) (?:registros? de )?|'
+        r'cual es (?:el )?numero de |'
+        r'cual es la cantidad de |'
+        r'cual es el total de |'
+        r'cuenta (?:los |las |a los |a las )?|'
+        r'dime (?:el )?(?:numero|total|la cantidad) de (?:los |las )?|'
+        r'dime (?:cuantos?|cuantas?) (?:registros? de )?|'
+        r'total de (?:los |las )?|'
+        r'cantidad de (?:los |las )?|'
+        r'numero de (?:los |las )?|'
+        r'hay (?:algun|algunos|alguna|algunas)? )'
+    )
+    count_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+
+    list_prefixes = (
+        r'(?:(?:cuales|que) son (?:los |las )?|'
+        r'(?:cuales|que) (?:los |las )?|'
+        r'muestra (?:los |las |el |la )?|'
+        r'muestrame (?:los |las |el |la )?|'
+        r'dame (?:los |las |la lista de |el listado de )?|'
+        r'listar? (?:los |las |el |la )?|'
+        r'lista de (?:los |las )?|'
+        r'listado de (?:los |las )?|'
+        r'ver (?:los |las |el |la )?|'
+        r'consultar (?:los |las |el |la )?|'
+        r'quienes son (?:los |las )?)'
+    )
+    list_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+
+    read_prefixes = (
+        r'(?:(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'
+        r'(?:quien es|que es) (?:el |la )?)'
+    )
+    read_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__| __literal__)'
+
+    plans = []
+    for name, entry in sorted(catalog.items()):
+        labels = [entry.get('label', '')] + entry.get('aliases', [])
+        for label in labels:
+            if not isinstance(label, str) or not label or len(label) > 100:
+                continue
+            subject = re.escape(_normalize(label).strip())
+
+            # Check COUNT
+            count_pat = count_prefixes + subject + r'(?:s|es)?' + count_suffixes
+            if re.fullmatch(count_pat, normalized):
+                filters = []
+                if quoted:
+                    if 'name' not in entry.get('fields', {}):
+                        continue
+                    filters = [{'field': 'name', 'op': 'equals', 'value': quoted[0]}]
+                elif '__literal__' in normalized:
+                    continue
+                plan = {'operation': 'count', 'model': name, 'filters': filters}
+                if plan not in plans:
+                    plans.append(plan)
+
+            # Check LIST
+            list_pat = list_prefixes + subject + r'(?:s|es)?' + list_suffixes
+            if re.fullmatch(list_pat, normalized):
+                filters = []
+                if quoted:
+                    if 'name' not in entry.get('fields', {}):
+                        continue
+                    filters = [{'field': 'name', 'op': 'equals', 'value': quoted[0]}]
+                elif '__literal__' in normalized:
+                    continue
+                plan = {'operation': 'list', 'model': name, 'filters': filters}
+                if plan not in plans:
+                    plans.append(plan)
+
+            # Check READ
+            read_pat = read_prefixes + subject + r'(?:s|es)?' + read_suffixes
+            if re.fullmatch(read_pat, normalized):
+                if quoted and 'name' in entry.get('fields', {}):
+                    filters = [{'field': 'name', 'op': 'equals', 'value': quoted[0]}]
+                    plan = {'operation': 'read', 'model': name, 'filters': filters}
+                    if plan not in plans:
+                        plans.append(plan)
+
+    return plans
+
+
+def general_candidates(question, catalog):
+    return [(p['model'], catalog[p['model']]['label']) for p in supported_plans(question, catalog)]
+
+
+def interpret_general(question, catalog, executable, model):
+    """Ask the model to select a structured plan from the allowed catalog.
+
+    A separate conservative verifier rejects plans whose full meaning cannot be
+    established from the question, even if the model selected them.
+    """
+    if not isinstance(question, str) or not question.strip() or len(question) > 512 or '\x00' in question:
+        raise ValueError('Invalid general query')
+    if not isinstance(catalog, dict) or len(catalog) > 64:
+        raise ValueError('Invalid catalog')
+    values = re.findall(r'"([^"\r\n]{1,100})"', question)
+    options = []
+    for name, entry in sorted(catalog.items()):
+        if not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9_.]{0,99}', name):
+            raise ValueError('Invalid model identifier')
+        options.append({'operation': 'count', 'model': name, 'filters': []})
+        options.append({'operation': 'list', 'model': name, 'filters': []})
+        if len(values) == 1 and 'name' in entry.get('fields', {}):
+            options.append({'operation': 'count', 'model': name,
+                            'filters': [{'field': 'name', 'op': 'equals', 'value': values[0]}]})
+            options.append({'operation': 'list', 'model': name,
+                            'filters': [{'field': 'name', 'op': 'equals', 'value': values[0]}]})
+            options.append({'operation': 'read', 'model': name,
+                            'filters': [{'field': 'name', 'op': 'equals', 'value': values[0]}]})
+    possible = [json.dumps(plan, ensure_ascii=False, separators=(',', ':')) for plan in options]
+    grammar = 'root ::= ' + ' | '.join(json.dumps(value, ensure_ascii=False) for value in ['null'] + possible)
+    public_catalog = {name: {'label': item['label'], 'aliases': item.get('aliases', []),
+                             'fields': [field for field in item.get('fields', {}) if field == 'name']}
+                      for name, item in catalog.items()}
+    prompt = ('<|im_start|>system\nSelecciona el modelo y operación del catálogo que corresponda a la pregunta. '
+              'Devuelve un objeto JSON con operation (count, list o read), model y filters, o null si no entiendes. '
+              'Para nombre entre comillas usa field=name, op=equals, value=el texto literal. '
+              'No ignores ningún criterio. Si no puedes expresarlo, devuelve null. '
+              'Catálogo: ' + json.dumps(public_catalog, ensure_ascii=False).replace('<|', '< |') +
+              '\n<|im_end|>\n<|im_start|>user\n' + question.replace('<|', '< |').replace('|>', '| >') +
+              '<|im_end|>\n<|im_start|>assistant\n')
+    output = _complete(prompt, executable, model, grammar)
+    try:
+        plan = json.loads(output)
+    except (TypeError, ValueError):
+        return None
+    verified = supported_plans(question, catalog)
+    return plan if len(verified) == 1 and plan == verified[0] else None

@@ -40,3 +40,7 @@ Algunas pruebas dependen de un modelo o ejecutable local y pueden omitirse si no
 Hubo pruebas locales con datos sintéticos, incluido un caso de inferencia real de saldo propio y 36 pruebas Odoo aisladas de las capacidades y la integración de vacaciones. Estas pruebas no certifican todos los escenarios ni el uso en producción. La aparición y el flujo visual completos en Discuss, las pruebas negativas amplias, la robustez del modelo, privacidad, concurrencia, permisos y compatibilidad requieren nueva verificación. No se ha evaluado el rendimiento ni desplegado esta versión en un servidor de producción.
 
 El contrato de diseño inicial está en [docs/core-contract.md](docs/core-contract.md); es un objetivo de diseño, no una garantía de implementación.
+
+### Consultas generales de Mole (prototipo)
+
+Mole puede contar registros visibles de algunos modelos comerciales instalados, sujetos a tus permisos, reglas y compañías. Por ejemplo: «¿Cuántos productos hay?» o «¿Cuántos productos con nombre "Mole" hay?». El único filtro disponible es igualdad por nombre entre comillas. Las cantidades monetarias, otros criterios y modelos ambiguos requieren aclaración; la cobertura y la interpretación son limitadas.

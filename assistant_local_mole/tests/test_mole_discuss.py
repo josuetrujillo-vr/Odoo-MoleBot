@@ -150,3 +150,109 @@ class TestMoleDiscuss(TransactionCase):
                 self.assertNotIn("Días disponibles", reply)
         employee.invalidate_recordset()
         self.assertEqual(employee.read(["lft_hire_date", "lft_allocation_id"]), before)
+
+    def test_general_count_discuss_uses_real_orm(self):
+        channel = self._ensure(self.alice)
+        provider = self.env['assistant.inference'].with_user(self.alice)
+        plan = {'operation': 'count', 'model': 'res.partner', 'filters': []}
+        label = self.env['assistant.general.query'].with_user(self.alice)._catalog()['res.partner']['label']
+        with patch.object(type(provider), '_chat', return_value={'tool_calls': []}), patch.object(type(provider), '_general_plan', return_value=plan):
+            channel.with_user(self.alice).message_post(body='¿Cuántos %s hay?' % label, message_type='comment')
+        channel.invalidate_recordset()
+        answer = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        expected = self.env['res.partner'].with_user(self.alice).with_context(active_test=True).search_count([])
+        self.assertIn(str(expected), answer)
+        self.assertIn('activos', answer)
+
+    def test_general_list_and_read_in_discuss(self):
+        channel = self._ensure(self.alice)
+        self.env['res.partner'].create({'name': 'Mole Discuss Specific Partner'})
+        channel.with_user(self.alice).message_post(body='¿Cuáles son los contactos?', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('Registros visibles de Contact', last_msg)
+        self.assertIn('Mole Discuss Specific Partner', last_msg)
+
+        channel.with_user(self.alice).message_post(body='Información del contacto "Mole Discuss Specific Partner"', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('Información de Contact', last_msg)
+        self.assertIn('Mole Discuss Specific Partner', last_msg)
+
+    def test_greeting_and_help_in_discuss(self):
+        channel = self._ensure(self.alice)
+        channel.with_user(self.alice).message_post(body='Hola Mole', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('Soy Mole', last_msg)
+
+    def test_sensitive_field_query_in_discuss(self):
+        channel = self._ensure(self.alice)
+        channel.with_user(self.alice).message_post(body='¿Cuál es la contraseña del usuario?', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('seguridad', last_msg)
+        self.assertIn('campos sensibles', last_msg)
+
+
+    def test_real_model_general_count(self):
+        import os
+        if not os.environ.get('MOLE_LLAMA_EXE') or not os.environ.get('MOLE_MODEL_PATH'):
+            self.skipTest('Local model paths are not configured')
+        label = self.env['assistant.general.query'].with_user(self.alice)._catalog()['product.template']['label']
+        self.env['product.template'].create({'name': 'Synthetic Mole product'})
+        expected = self.env['product.template'].with_user(self.alice).with_context(active_test=True).search_count([])
+        channel = self._ensure(self.alice)
+        with patch.dict(os.environ, {'ASSISTANT_LOCAL_BACKEND': 'llama_cpp_cli'}):
+            channel.with_user(self.alice).message_post(body='¿Cuántos productos hay?', message_type='comment')
+        channel.invalidate_recordset()
+        reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('Registros activos visibles', reply)
+        self.assertIn(str(expected), reply)
+
+
+    def test_real_model_filtered_spanish_count(self):
+        import os
+        if not os.environ.get('MOLE_LLAMA_EXE') or not os.environ.get('MOLE_MODEL_PATH'):
+            self.skipTest('Local model paths are not configured')
+        self.env['product.template'].create({'name': 'Mole synthetic filter'})
+        channel = self._ensure(self.alice)
+        with patch.dict(os.environ, {'ASSISTANT_LOCAL_BACKEND': 'llama_cpp_cli'}):
+            channel.with_user(self.alice).message_post(body='¿Cuántos productos con nombre "Mole synthetic filter" hay?', message_type='comment')
+        channel.invalidate_recordset()
+        reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('Registros activos visibles', reply)
+        self.assertIn(': 1.', reply)
+
+    def test_real_model_varied_natural_counts(self):
+        import os
+        if not os.environ.get('MOLE_LLAMA_EXE') or not os.environ.get('MOLE_MODEL_PATH'):
+            self.skipTest('Local model paths are not configured')
+        channel = self._ensure(self.alice)
+        cases = [('¿Cuál es el número de contactos?', 'res.partner'),
+                 ('Cuenta los productos', 'product.template')]
+        with patch.dict(os.environ, {'ASSISTANT_LOCAL_BACKEND': 'llama_cpp_cli'}):
+            for question, model in cases:
+                with self.subTest(question=question):
+                    expected = self.env[model].with_user(self.alice).with_context(active_test=True).search_count([])
+                    channel.with_user(self.alice).message_post(body=question, message_type='comment')
+                    channel.invalidate_recordset()
+                    answer = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+                    self.assertIn('Registros activos visibles', answer)
+                    self.assertIn(': %s.' % expected, answer)
+
+    def test_real_model_catalog_adversarial_questions_fail_closed(self):
+        import os
+        if not os.environ.get('MOLE_LLAMA_EXE') or not os.environ.get('MOLE_MODEL_PATH'):
+            self.skipTest('Local model paths are not configured')
+        channel = self._ensure(self.alice)
+        questions = ('¿Cuántos productos vendidos hay?',
+                     '¿Cuántos contactos de México hay?',
+                     '¿Cuántas contraseñas tienen los usuarios?')
+        with patch.dict(os.environ, {'ASSISTANT_LOCAL_BACKEND': 'llama_cpp_cli'}):
+            for question in questions:
+                with self.subTest(question=question):
+                    channel.with_user(self.alice).message_post(body=question, message_type='comment')
+                    channel.invalidate_recordset()
+                    answer = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+                    self.assertNotIn('Registros activos visibles', answer)
