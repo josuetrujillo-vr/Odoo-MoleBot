@@ -31,8 +31,29 @@ class AssistantStockTransferProposal(models.Model):
         self.ensure_one()
         if self.user_id != self.env.user or self.company_id != self.env.company:
             raise AccessError(self.env._("This transfer proposal does not belong to the current user/company."))
-        if not self.env.user.has_group("stock.group_stock_user"):
-            raise AccessError(self.env._("Stock user access is required."))
+        if not self._can_transfer():
+            raise AccessError(self.env._("Inventory or administrator access is required."))
+
+    @api.model
+    def _can_transfer(self):
+        user = self.env.user
+        return (user.has_group("stock.group_stock_user")
+                or user.has_group("base.group_system"))
+
+    @api.model
+    def _stock_env(self):
+        """Return an environment allowed to write stock records.
+
+        Inventory users already have those rights. A Settings administrator is
+        explicitly allowed by this assistant, but Odoo only grants
+        stock.picking/stock.move writes to Inventory users, so only the stock
+        operations use sudo while the proposal stays owned by the real user.
+        """
+        if self.env.user.has_group("stock.group_stock_user"):
+            return self.env
+        if self.env.user.has_group("base.group_system"):
+            return self.env(su=True)
+        return self.env
 
     def _is_expired(self):
         self.ensure_one()
@@ -41,8 +62,8 @@ class AssistantStockTransferProposal(models.Model):
     @api.model
     def create_proposal(self, origin_location, destination_location, product, quantity, uom):
         env = self.env
-        if not env.user.has_group("stock.group_stock_user"):
-            raise AccessError(env._("Stock user access is required."))
+        if not self._can_transfer():
+            raise AccessError(env._("Inventory or administrator access is required."))
         if quantity <= 0:
             raise ValidationError(env._("Quantity must be positive."))
         if origin_location.company_id and origin_location.company_id != env.company:
@@ -52,7 +73,7 @@ class AssistantStockTransferProposal(models.Model):
         if product.company_id and product.company_id != env.company:
             raise ValidationError(env._("Product is in another company."))
 
-        quants = env["stock.quant"].search([
+        quants = self._stock_env()["stock.quant"].search([
             ("product_id", "=", product.id),
             ("location_id", "=", origin_location.id),
         ])
@@ -90,10 +111,11 @@ class AssistantStockTransferProposal(models.Model):
         uom = self.uom_id
 
         # Revalidate permissions and locations.
-        if not self.env.user.has_group("stock.group_stock_user"):
-            raise AccessError(self.env._("Stock user access is required."))
+        if not self._can_transfer():
+            raise AccessError(self.env._("Inventory or administrator access is required."))
 
-        picking_type = self.env["stock.picking.type"].search([
+        stock_env = self._stock_env()
+        picking_type = stock_env["stock.picking.type"].search([
             ("code", "=", "internal"),
             ("company_id", "=", self.company_id.id),
         ], limit=1)
@@ -101,14 +123,14 @@ class AssistantStockTransferProposal(models.Model):
             raise UserError(self.env._("No internal operation type is configured."))
 
         self.state = "used"
-        picking = self.env["stock.picking"].create({
+        picking = stock_env["stock.picking"].create({
             "picking_type_id": picking_type.id,
             "location_id": origin.id,
             "location_dest_id": destination.id,
             "company_id": self.company_id.id,
             "origin": "assistant transfer %s" % self.id,
         })
-        self.env["stock.move"].create({
+        stock_env["stock.move"].create({
             "name": product.display_name,
             "product_id": product.id,
             "product_uom_qty": quantity,

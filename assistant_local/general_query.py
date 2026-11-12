@@ -2,15 +2,24 @@
 import re
 
 
-def format_result(result):
+def format_result(result, language='es'):
     """Render a validated general query result into the chat reply text."""
     if not isinstance(result, dict):
         return None
     operation = result.get('operation')
     if operation not in ('count', 'list', 'read'):
         return None
+    english = language == 'en'
     companies = ', '.join(result.get('companies') or [])
     if operation == 'count':
+        if english:
+            criteria = ('name equals "%s"' % result['filters'][0]['value']
+                        if result.get('filters') else 'no additional filters')
+            archived = 'active ' if result.get('active') else ''
+            return ("Visible %srecords of %s: %s. Active companies in context: %s. "
+                    "Criteria: %s; your permissions and rules apply. "
+                    "Model rules determine company scope.") % (
+                archived, result.get('label'), result.get('count'), companies, criteria)
         criteria = ('nombre igual a "%s"' % result['filters'][0]['value']
                     if result.get('filters') else 'sin filtros adicionales')
         archived = 'activos ' if result.get('active') else ''
@@ -21,25 +30,40 @@ def format_result(result):
     if operation == 'list':
         records = result.get('records') or []
         if not records:
+            if english:
+                return "No visible records of %s matched those criteria." % (result.get('label'),)
             return "No se encontraron registros visibles de %s con esos criterios." % (result.get('label'),)
-        lines = ["Registros visibles de %s (mostrando %s de %s):" % (
-            result.get('label'), len(records), result.get('total_count'))]
+        if english:
+            lines = ["Visible records of %s (showing %s of %s):" % (
+                result.get('label'), len(records), result.get('total_count'))]
+        else:
+            lines = ["Registros visibles de %s (mostrando %s de %s):" % (
+                result.get('label'), len(records), result.get('total_count'))]
         for record in records:
             name = record.get('display_name') or record.get('name') or ("ID %s" % record.get('id'))
             lines.append("• %s" % name)
-        lines.append("\nCompañías activas: %s. Se aplican tus permisos y reglas." % companies)
+        footer = ("\nActive companies: %s. Your permissions and rules apply." % companies
+                  if english else
+                  "\nCompañías activas: %s. Se aplican tus permisos y reglas." % companies)
+        lines.append(footer)
         return "\n".join(lines)
     record = result.get('record') or {}
     if not record:
+        if english:
+            return "No %s record matched those criteria." % (result.get('label'),)
         return "No se encontró ningún registro de %s con esos criterios." % (result.get('label'),)
     title = record.get('display_name') or record.get('name') or ("ID %s" % record.get('id'))
-    lines = ["Información de %s (%s):" % (result.get('label'), title)]
+    lines = [("Information for %s (%s):" if english else "Información de %s (%s):")
+             % (result.get('label'), title)]
     fields_info = result.get('fields_info') or {}
     for field, value in record.items():
         if field in ('id', 'display_name') or value is False or value is None or value == '':
             continue
         lines.append("• %s: %s" % (fields_info.get(field, field), value))
-    lines.append("\nCompañías activas: %s. Se aplican tus permisos y reglas." % companies)
+    footer = ("\nActive companies: %s. Your permissions and rules apply." % companies
+              if english else
+              "\nCompañías activas: %s. Se aplican tus permisos y reglas." % companies)
+    lines.append(footer)
     return "\n".join(lines)
 
 

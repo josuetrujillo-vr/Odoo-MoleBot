@@ -59,13 +59,31 @@ _NAMED_QUERY = re.compile(
     re.IGNORECASE,
 )
 
+_NAMED_TARGET_STOPWORDS = frozenset({
+    "mi", "mis", "su", "sus", "tu", "tus", "nuestro", "nuestra",
+    "el", "la", "los", "las", "un", "una", "unos", "unas",
+    "alguien", "algun", "alguna", "algunos", "algunas",
+    "jefe", "jefa", "jefes", "jefas", "companero", "companera",
+    "companeros", "companeras", "colega", "colegas",
+    "empleado", "empleada", "empleados", "empleadas",
+    "trabajador", "trabajadora", "trabajadores", "trabajadoras",
+    "supervisor", "supervisora", "gerente", "director", "directora",
+    "subordinado", "subordinada", "equipo", "personal",
+})
+
 
 def named_vacation_target(question):
     """Extract only an explicitly named, literal target from a narrow question."""
     if not isinstance(question, str) or len(question) > 4000 or "\x00" in question:
         return None
     match = _NAMED_QUERY.fullmatch(question)
-    return match.group(1) if match else None
+    if not match:
+        return None
+    target = match.group(1)
+    first_word = _normalize(target.split()[0]) if target.split() else ""
+    if first_word in _NAMED_TARGET_STOPWORDS:
+        return None
+    return target
 
 
 def _normalize(text):
@@ -212,7 +230,16 @@ def supported_plans(question, catalog):
     normalized = re.sub(r'\s+', ' ', _normalize(text).strip().strip('¿?¡! '))
 
     count_prefixes = (
-        r'(?:(?:cuantos?|cuantas?) (?:registros? de )?|'
+        r'(?:(?:how many|how much) (?:records? of )?|'
+        r'what is the (?:number|count|total) of |'
+        r'count (?:the |all )?|'
+        r'total (?:number of )?|'
+        r'number of |'
+        r'tell me the (?:number|count|total) of (?:the )?|'
+        r'show me the (?:number|count|total) of (?:the )?|'
+        r'do we have (?:any )?|'
+        r'are there (?:any )?|'
+        r'(?:cuantos?|cuantas?) (?:registros? de )?|'
         r'cual es (?:el )?numero de |'
         r'cual es la cantidad de |'
         r'cual es el total de |'
@@ -224,11 +251,24 @@ def supported_plans(question, catalog):
         r'numero de (?:los |las )?|'
         r'hay (?:algun|algunos|alguna|algunas)? )'
     )
-    count_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta)?'
+    count_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__)?'
+        r'(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
+        r' do we have| are there| exist| are available| is available| in total| currently)?'
+    )
 
     list_prefixes = (
-        r'(?:(?:cuales|que) son (?:los |las )?|'
+        r'(?:(?:which|what) are (?:the |all )?|'
+        r'(?:which|what) (?:the |all )?|'
+        r'(?:cuales|que) son (?:los |las )?|'
         r'(?:cuales|que) (?:los |las )?|'
+        r'show (?:me )?(?:the |all )?|'
+        r'display (?:the |all )?|'
+        r'list (?:the |all )?|'
+        r'give me (?:the list of |the )?|'
+        r'view (?:the )?|'
+        r'who are the |'
         r'muestra (?:los |las |el |la )?|'
         r'muestrame (?:los |las |el |la )?|'
         r'dame (?:los |las |la lista de |el listado de )?|'
@@ -239,13 +279,23 @@ def supported_plans(question, catalog):
         r'consultar (?:los |las |el |la )?|'
         r'quienes son (?:los |las )?)'
     )
-    list_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta)?'
+    list_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__)?'
+        r'(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
+        r' do we have| are there| exist| are available| is available| in total| currently)?'
+    )
 
     read_prefixes = (
-        r'(?:(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'
+        r'(?:(?:information|info|details?|data) (?:about|on|for|of) (?:the )?|'
+        r'(?:who is|what is) (?:the )?|'
+        r'(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'
         r'(?:quien es|que es) (?:el |la )?)'
     )
-    read_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__| __literal__)'
+    read_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__| __literal__)'
+    )
 
     plans = []
     for name, entry in sorted(catalog.items()):

@@ -161,6 +161,46 @@ if __name__ == "__main__":
     unittest.main()
 
 class GeneralInterpretTests(unittest.TestCase):
+    def test_english_count_list_and_read_plans(self):
+        catalog = {
+            'res.partner': {
+                'label': 'Contact', 'aliases': ['contact', 'contacts'],
+                'fields': {'name': {'type': 'char'}},
+            },
+            'product.template': {
+                'label': 'Product', 'aliases': ['product', 'products'],
+                'fields': {'name': {'type': 'char'}},
+            },
+        }
+        cases = (
+            ('How many contacts are there?',
+             {'operation': 'count', 'model': 'res.partner', 'filters': []}),
+            ('How many products exist?',
+             {'operation': 'count', 'model': 'product.template', 'filters': []}),
+            ('List all contacts',
+             {'operation': 'list', 'model': 'res.partner', 'filters': []}),
+            ('Show me the products',
+             {'operation': 'list', 'model': 'product.template', 'filters': []}),
+        )
+        for question, expected in cases:
+            with self.subTest(question=question):
+                self.assertEqual(mole_local.supported_plans(question, catalog), [expected])
+
+        filtered = mole_local.supported_plans(
+            'How many contacts with name "ACME" are there?', catalog
+        )
+        self.assertEqual(filtered, [{
+            'operation': 'count', 'model': 'res.partner',
+            'filters': [{'field': 'name', 'op': 'equals', 'value': 'ACME'}],
+        }])
+        read = mole_local.supported_plans(
+            'Information about contact "ACME"', catalog
+        )
+        self.assertEqual(read, [{
+            'operation': 'read', 'model': 'res.partner',
+            'filters': [{'field': 'name', 'op': 'equals', 'value': 'ACME'}],
+        }])
+
     def test_generic_count_and_ambiguous_question(self):
         catalog = {'product.template': {'label': 'Product', 'fields': {}}, 'res.partner': {'label': 'Contact', 'fields': {}}}
         with patch.object(mole_local, '_complete', return_value='{"operation":"count","model":"product.template","filters":[]}'):

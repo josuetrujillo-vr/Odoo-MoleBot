@@ -43,6 +43,27 @@ class GeneralPlanTests(unittest.TestCase):
         self.assertIsNone(query.format_result({'operation': 'write'}))
         self.assertIsNone(query.format_result(None))
 
+    def test_english_formatting(self):
+        count = {'operation': 'count', 'count': 7, 'label': 'Product',
+                 'companies': ['ACME'], 'active': True, 'filters': []}
+        text = query.format_result(count, language='en')
+        self.assertIn('Visible active records of Product: 7', text)
+        self.assertIn('Criteria: no additional filters', text)
+        self.assertIn('ACME', text)
+
+        items = {'operation': 'list', 'records': [{'id': 1, 'name': 'ACME'}],
+                 'total_count': 1, 'label': 'Contact', 'companies': ['ACME'],
+                 'active': True, 'filters': []}
+        text = query.format_result(items, language='en')
+        self.assertIn('Visible records of Contact (showing 1 of 1):', text)
+        self.assertIn('• ACME', text)
+
+        read = {'operation': 'read', 'record': {'id': 1, 'display_name': 'ACME'},
+                'fields_info': {}, 'label': 'Contact', 'companies': ['ACME'],
+                'active': True, 'filters': []}
+        self.assertIn('Information for Contact (ACME):',
+                      query.format_result(read, language='en'))
+
     def test_count_for_two_models(self):
         for model in self.catalog:
             plan = {'operation': 'count', 'model': model, 'filters': []}
