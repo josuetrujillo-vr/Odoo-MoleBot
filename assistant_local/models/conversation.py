@@ -3,7 +3,7 @@ import json
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
-from ..general_query import format_result
+from ..general_query import format_result, format_vacation_balance
 
 
 MAX_CHAT_MESSAGE_LENGTH = 4000
@@ -140,10 +140,11 @@ class AssistantConversation(models.Model):
             try:
                 result = self.env["assistant.capability"]._execute_capability(name, arguments)
                 executed = True
-                self.env["assistant.message"]._create_assistant_message(
-                    self,
-                    "Resultado de %s: %s" % (name, json.dumps(result, ensure_ascii=False, default=str)),
-                )
+                if name == "hr.vacation.balance.get_own":
+                    msg = format_vacation_balance(result)
+                else:
+                    msg = "Resultado de %s: %s" % (name, json.dumps(result, ensure_ascii=False, default=str))
+                self.env["assistant.message"]._create_assistant_message(self, msg)
             except (UserError, ValidationError, ValueError, AccessError):
                 executed = True
                 self.env["assistant.message"]._create_assistant_message(
@@ -169,7 +170,16 @@ class AssistantConversation(models.Model):
         engine = self.env["assistant.general.query"]
         provider = self.env["assistant.inference"]
         try:
-            plan = provider._general_plan(question, engine._catalog())
+            from ..mole_local import supported_plans
+            catalog = engine._catalog()
+            candidates = supported_plans(question, catalog)
+            plan = None
+            try:
+                plan = provider._general_plan(question, catalog)
+            except Exception:
+                pass
+            if plan is None and len(candidates) == 1:
+                plan = candidates[0]
             if not isinstance(plan, dict) or plan.get("operation") not in ("count", "list", "read"):
                 return False
             result = engine._execute(plan, question)

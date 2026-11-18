@@ -32,3 +32,4 @@ venv/
 /assistant_local_mole/README.md
 /tools/create_antigravity_db.py
 /tools/setup_mole_demo.py
+/tools/check_*.py

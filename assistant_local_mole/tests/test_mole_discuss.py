@@ -144,10 +144,10 @@ class TestMoleDiscuss(TransactionCase):
             channel.invalidate_recordset()
             reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
             if permitted:
-                self.assertIn("Días disponibles: %s" % expected, reply)
+                self.assertIn("cuenta con **%s** días de vacaciones disponibles" % expected, reply)
             else:
                 self.assertIn("No se puede consultar el saldo", reply)
-                self.assertNotIn("Días disponibles", reply)
+                self.assertNotIn("días de vacaciones disponibles", reply)
         employee.invalidate_recordset()
         self.assertEqual(employee.read(["lft_hire_date", "lft_allocation_id"]), before)
 
@@ -170,21 +170,40 @@ class TestMoleDiscuss(TransactionCase):
         channel.with_user(self.alice).message_post(body='¿Cuáles son los contactos?', message_type='comment')
         channel.invalidate_recordset()
         last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-        self.assertIn('Registros visibles de Contact', last_msg)
+        self.assertIn('registros de **Contact**', last_msg)
         self.assertIn('Mole Discuss Specific Partner', last_msg)
 
         channel.with_user(self.alice).message_post(body='Información del contacto "Mole Discuss Specific Partner"', message_type='comment')
         channel.invalidate_recordset()
         last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-        self.assertIn('Información de Contact', last_msg)
+        self.assertIn('Detalle de Contact', last_msg)
         self.assertIn('Mole Discuss Specific Partner', last_msg)
 
-    def test_greeting_and_help_in_discuss(self):
+    def test_greeting_and_social_in_discuss(self):
         channel = self._ensure(self.alice)
+        # Pure greeting
         channel.with_user(self.alice).message_post(body='Hola Mole', message_type='comment')
         channel.invalidate_recordset()
         last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
         self.assertIn('Soy Mole', last_msg)
+
+        # Gratitude
+        channel.with_user(self.alice).message_post(body='Muchas gracias Mole', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('gusto', last_msg.lower())
+
+        # Farewell
+        channel.with_user(self.alice).message_post(body='Hasta luego', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('hasta luego', last_msg.lower())
+
+        # Question with greeting should answer the question, not just greet!
+        channel.with_user(self.alice).message_post(body='Hola, ¿cuántos contactos hay?', message_type='comment')
+        channel.invalidate_recordset()
+        last_msg = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('registros activos de **Contact**', last_msg)
 
     def test_sensitive_field_query_in_discuss(self):
         channel = self._ensure(self.alice)
@@ -207,7 +226,7 @@ class TestMoleDiscuss(TransactionCase):
             channel.with_user(self.alice).message_post(body='¿Cuántos productos hay?', message_type='comment')
         channel.invalidate_recordset()
         reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-        self.assertIn('Registros activos visibles', reply)
+        self.assertIn('registros activos de', reply)
         self.assertIn(str(expected), reply)
 
 
@@ -221,8 +240,8 @@ class TestMoleDiscuss(TransactionCase):
             channel.with_user(self.alice).message_post(body='¿Cuántos productos con nombre "Mole synthetic filter" hay?', message_type='comment')
         channel.invalidate_recordset()
         reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-        self.assertIn('Registros activos visibles', reply)
-        self.assertIn(': 1.', reply)
+        self.assertIn('registros activos de', reply)
+        self.assertIn('**1**', reply)
 
     def test_real_model_varied_natural_counts(self):
         import os
@@ -238,8 +257,8 @@ class TestMoleDiscuss(TransactionCase):
                     channel.with_user(self.alice).message_post(body=question, message_type='comment')
                     channel.invalidate_recordset()
                     answer = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-                    self.assertIn('Registros activos visibles', answer)
-                    self.assertIn(': %s.' % expected, answer)
+                    self.assertIn('registros activos de', answer)
+                    self.assertIn('**%s**' % expected, answer)
 
     def test_real_model_catalog_adversarial_questions_fail_closed(self):
         import os
@@ -255,4 +274,4 @@ class TestMoleDiscuss(TransactionCase):
                     channel.with_user(self.alice).message_post(body=question, message_type='comment')
                     channel.invalidate_recordset()
                     answer = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
-                    self.assertNotIn('Registros activos visibles', answer)
+                    self.assertNotIn('registros activos de', answer)

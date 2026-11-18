@@ -52,19 +52,104 @@ _PROPER_NAME_AFTER_PREP = re.compile(r"\b(?:de|del|para|a)\s+([A-ZÁÉÍÓÚ][a-
 _DE_WORD = re.compile(r"\b(?:de|del|para)\s+([a-z]+)\b")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
+_GREETING_WORDS = (
+    r"hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|que\s+tal|saludos|"
+    r"ayuda|que\s+puedes\s+hacer|como\s+funcionas|que\s+puedes\s+responder|"
+    r"que\s+sabes\s+hacer|que\s+haces|en\s+que\s+me\s+puedes\s+ayudar|"
+    r"hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|help|"
+    r"what\s+can\s+you\s+do|how\s+do\s+you\s+work|what\s+can\s+you\s+answer|"
+    r"what\s+do\s+you\s+know|what\s+do\s+you\s+do|how\s+can\s+you\s+help"
+)
+
+_GRATITUDE_WORDS = (
+    r"muchas\s+gracias|mil\s+gracias|muchisimas\s+gracias|gracias|te\s+agradezco|se\s+agradece|"
+    r"thank\s+you(?:\s+very\s+much)?|thanks(?:\s+a\s+lot)?"
+)
+
+_FAREWELL_WORDS = (
+    r"adios|hasta\s+luego|hasta\s+pronto|nos\s+vemos|chao|bye|goodbye|see\s+you(?:\s+later)?"
+)
+
+_ACK_WORDS = (
+    r"perfecto|excelente|de\s+acuerdo|entendido|muy\s+bien|genial|ok|okay|great|awesome|understood|got\s+it"
+)
+
+_QUERY_COURTESY = re.compile(
+    r"^(?:(?:hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|saludos|que\s+tal|hey|hello|hi|good\s+morning|good\s+afternoon|good\s+evening)\b[,:\s]*)*"
+    r"(?:(?:por\s+favor|please|disculpa|oye|mole)\b[,:\s]*)*"
+    r"(?:(?:me\s+puedes\s+decir|me\s+podrias\s+decir|puedes\s+decirme|podrias\s+decirme|puedes\s+mostrarme|podrias\s+mostrarme|"
+    r"can\s+you\s+tell\s+me|could\s+you\s+tell\s+me|can\s+you\s+show\s+me|could\s+you\s+show\s+me|would\s+you\s+show\s+me|"
+    r"puedes\s+darme|podrias\s+darme|sabes\s+si\s+hay|sabes\s+si\s+tenemos|sabes|do\s+you\s+know)\b[,:\s]*)*",
+    re.IGNORECASE,
+)
+
+
+def clean_courtesy(text):
+    """Strip leading conversational courtesies and greetings from a query."""
+    if not isinstance(text, str):
+        return ""
+    norm = _normalize(text).strip().strip("¿?¡! ,;:")
+    return _QUERY_COURTESY.sub("", norm).strip().strip("¿?¡! ,;:")
+
+
+def classify_social(text):
+    """Return social intent: 'greeting', 'gratitude', 'farewell', 'acknowledgment', or None."""
+    if not isinstance(text, str):
+        return None
+    norm = _normalize(text).strip().strip("¿?¡! ,;:")
+    if not norm:
+        return None
+    norm_no_mole = re.sub(r"\bmole\b", "", norm).strip("¿?¡! ,;:")
+    if not norm_no_mole:
+        return "greeting"
+
+    if re.fullmatch(r"(?:" + _GRATITUDE_WORDS + r")(?:[\s,;:]+(?:mole|por\s+favor|amigo|amiga))*", norm_no_mole):
+        return "gratitude"
+    if re.fullmatch(r"(?:" + _FAREWELL_WORDS + r")(?:[\s,;:]+(?:mole|amigo|amiga))*", norm_no_mole):
+        return "farewell"
+    if re.fullmatch(r"(?:" + _ACK_WORDS + r")(?:[\s,;:]+(?:mole|muchas\s+gracias|gracias))*", norm_no_mole):
+        return "acknowledgment"
+    if re.fullmatch(r"(?:" + _GREETING_WORDS + r")(?:[\s,;:]+(?:mole|a\s+todos))*", norm_no_mole):
+        return "greeting"
+    return None
+
+
 _NAMED_QUERY = re.compile(
     r"^\s*(?:¿\s*)?(?:(?:[Cc]u[aá]l\s+es\s+el\s+)?[Ss]aldo\s+de\s+vacaciones\s+(?:de|para)|"
     r"(?:[Cc]u[aá]ntos?\s+d[ií]as\s+de\s+vacaciones\s+(?:tiene|le\s+tocan\s+a))"
-    r")\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:[ '\-](?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+|de|del|la|las|los))*)\s*[?.¿]*\s*$"
+    r")\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'\-]*(?:\s+(?:[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'\-]*|de|del|la|las|los|y|e))*?)\s*[?.¿]*\s*$",
+    re.IGNORECASE,
 )
+
+_NAMED_TARGET_STOPWORDS = frozenset({
+    "mi", "mis", "su", "sus", "tu", "tus", "nuestro", "nuestra",
+    "el", "la", "los", "las", "un", "una", "unos", "unas",
+    "alguien", "algun", "alguna", "algunos", "algunas",
+    "jefe", "jefa", "jefes", "jefas", "companero", "companera",
+    "companeros", "companeras", "colega", "colegas",
+    "empleado", "empleada", "empleados", "empleadas",
+    "trabajador", "trabajadora", "trabajadores", "trabajadoras",
+    "supervisor", "supervisora", "gerente", "director", "directora",
+    "subordinado", "subordinada", "equipo", "personal",
+})
 
 
 def named_vacation_target(question):
     """Extract only an explicitly named, literal target from a narrow question."""
     if not isinstance(question, str) or len(question) > 4000 or "\x00" in question:
         return None
-    match = _NAMED_QUERY.fullmatch(question)
-    return match.group(1) if match else None
+    cleaned = re.sub(
+        r"^\s*(?:hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches)[,:\s]*",
+        "", question, flags=re.IGNORECASE
+    ).strip()
+    match = _NAMED_QUERY.fullmatch(cleaned)
+    if not match:
+        return None
+    target = match.group(1)
+    first_word = _normalize(target.split()[0]) if target.split() else ""
+    if first_word in _NAMED_TARGET_STOPWORDS:
+        return None
+    return target
 
 
 def _normalize(text):
@@ -84,6 +169,7 @@ def is_safe_own_vacation_query(question):
             return False
 
     norm = _normalize(question)
+    norm = _QUERY_COURTESY.sub("", norm).strip().strip("¿?¡! ")
     if not _VACATION_KEYWORD.search(norm):
         return False
     if _OUT_OF_SCOPE_ACTION.search(norm):
@@ -209,25 +295,53 @@ def supported_plans(question, catalog):
         return []
     text = re.sub(r'"([^"\r\n]{1,100})"', ' __literal__ ', question)
     normalized = re.sub(r'\s+', ' ', _normalize(text).strip().strip('¿?¡! '))
+    normalized = _QUERY_COURTESY.sub('', normalized).strip().strip('¿?¡! ')
 
     count_prefixes = (
-        r'(?:(?:cuantos?|cuantas?) (?:registros? de )?|'
-        r'cual es (?:el )?numero de |'
-        r'cual es la cantidad de |'
-        r'cual es el total de |'
-        r'cuenta (?:los |las |a los |a las )?|'
-        r'dime (?:el )?(?:numero|total|la cantidad) de (?:los |las )?|'
-        r'dime (?:cuantos?|cuantas?) (?:registros? de )?|'
-        r'total de (?:los |las )?|'
-        r'cantidad de (?:los |las )?|'
-        r'numero de (?:los |las )?|'
-        r'hay (?:algun|algunos|alguna|algunas)? )'
+        r'(?:(?:how many|how much)\s+(?:records?\s+of\s+)?|'
+        r'what is the (?:number|count|total) of\s+|'
+        r'count\s+(?:the\s+|all\s+)?|'
+        r'total\s+(?:number of\s+)?|'
+        r'number of\s+|'
+        r'tell me the (?:number|count|total) of\s+(?:the\s+)?|'
+        r'show me the (?:number|count|total) of\s+(?:the\s+)?|'
+        r'do we have\s+(?:any\s+)?|'
+        r'are there\s+(?:any\s+)?|'
+        r'(?:cuantos?|cuantas?)\s+(?:registros?\s+de\s+)?|'
+        r'cual es\s+(?:el\s+)?numero de\s+|'
+        r'cual es la cantidad de\s+|'
+        r'cual es el total de\s+|'
+        r'cuenta\s+(?:los\s+|las\s+|a los\s+|a las\s+)?|'
+        r'dime\s+(?:el\s+)?(?:numero|total|la cantidad) de\s+(?:los\s+|las\s+)?|'
+        r'dime\s+(?:cuantos?|cuantas?)\s+(?:registros?\s+de\s+)?|'
+        r'dime si\s+(?:hay|tenemos|existen)\s+(?:algun|algunos|alguna|algunas)?\s*|'
+        r'sabes\s+(?:cuantos?|cuantas?|si hay|si tenemos)\s+(?:registros?\s+de\s+)?|'
+        r'total de\s+(?:los\s+|las\s+)?|'
+        r'cantidad de\s+(?:los\s+|las\s+)?|'
+        r'numero de\s+(?:los\s+|las\s+)?|'
+        r'tenemos\s+(?:algun|algunos|alguna|algunas)?\s*|'
+        r'hay\s+(?:algun|algunos|alguna|algunas)?\s*)'
     )
-    count_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+    count_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__)?'
+        r'(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
+        r' do we have| are there| exist| are available| is available)?'
+        r'(?: en el sistema| en la empresa| en la compania| en total|'
+        r' in the system| in the company| in total| currently)?'
+    )
 
     list_prefixes = (
-        r'(?:(?:cuales|que) son (?:los |las )?|'
+        r'(?:(?:which|what) are (?:the |all )?|'
+        r'(?:which|what) (?:the |all )?|'
+        r'(?:cuales|que) son (?:los |las )?|'
         r'(?:cuales|que) (?:los |las )?|'
+        r'show (?:me )?(?:the |all )?|'
+        r'display (?:the |all )?|'
+        r'list (?:the |all )?|'
+        r'give me (?:the list of |the )?|'
+        r'view (?:the )?|'
+        r'who are the |'
         r'muestra (?:los |las |el |la )?|'
         r'muestrame (?:los |las |el |la )?|'
         r'dame (?:los |las |la lista de |el listado de )?|'
@@ -238,13 +352,25 @@ def supported_plans(question, catalog):
         r'consultar (?:los |las |el |la )?|'
         r'quienes son (?:los |las )?)'
     )
-    list_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__)?(?: hay| existen| tenemos| disponibles| registrados?| dados? de alta)?'
+    list_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__)?'
+        r'(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
+        r' do we have| are there| exist| are available| is available)?'
+        r'(?: en el sistema| en la empresa| en la compania| en total|'
+        r' in the system| in the company| in total| currently)?'
+    )
 
     read_prefixes = (
-        r'(?:(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'
+        r'(?:(?:information|info|details?|data) (?:about|on|for|of) (?:the )?|'
+        r'(?:who is|what is) (?:the )?|'
+        r'(?:informacion|info|detalles?|datos?) de(?:l)? (?:los |las |el |la )?|'
         r'(?:quien es|que es) (?:el |la )?)'
     )
-    read_suffixes = r'(?: con nombre __literal__| llamados? __literal__| de nombre __literal__| __literal__)'
+    read_suffixes = (
+        r'(?: with name __literal__| named __literal__| called __literal__|'
+        r' con nombre __literal__| llamados? __literal__| de nombre __literal__| __literal__)'
+    )
 
     plans = []
     for name, entry in sorted(catalog.items()):
