@@ -141,7 +141,7 @@ class TestMoleStockChat(TransactionCase):
 
     def test_english_generic_count_is_not_claimed_by_stock(self):
         answer = self._ask(self.alice, "How many contacts are there?")
-        self.assertIn("Visible active records of", answer)
+        self.assertIn("active Contact records", answer)
         self.assertIn("Contact", answer)
         self.assertNotIn("Stock of", answer)
 

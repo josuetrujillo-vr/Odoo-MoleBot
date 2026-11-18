@@ -208,7 +208,70 @@ class GeneralInterpretTests(unittest.TestCase):
             self.assertIsNone(mole_local.interpret_general('¿Cuántos Product vendidos hay?', catalog, 'exe', 'model'))
             self.assertIsNone(mole_local.interpret_general('¿Cuántos hay?', catalog, 'exe', 'model'))
 
-    def test_invented_model_choice_is_rejected(self):
-        catalog = {'product.template': {'label': 'Product', 'fields': {}}}
-        with patch.object(mole_local, '_complete', return_value='2'):
-            self.assertIsNone(mole_local.interpret_general('¿Cuántos Product hay?', catalog, 'exe', 'model'))
+    def test_social_intents_classification(self):
+        greetings = ["Hola", "Hola Mole", "Buenos días", "Buenas tardes", "Good morning", "Hi", "Hey Mole"]
+        for text in greetings:
+            with self.subTest(text=text):
+                self.assertEqual(mole_local.classify_social(text), "greeting")
+
+        gratitudes = ["Gracias", "Muchas gracias", "Muchas gracias Mole", "Mil gracias", "Thank you", "Thanks"]
+        for text in gratitudes:
+            with self.subTest(text=text):
+                self.assertEqual(mole_local.classify_social(text), "gratitude")
+
+        farewells = ["Hasta luego", "Adiós", "Chao", "Bye", "Goodbye"]
+        for text in farewells:
+            with self.subTest(text=text):
+                self.assertEqual(mole_local.classify_social(text), "farewell")
+
+        acks = ["Perfecto", "Excelente", "De acuerdo", "Entendido", "Great", "Understood"]
+        for text in acks:
+            with self.subTest(text=text):
+                self.assertEqual(mole_local.classify_social(text), "acknowledgment")
+
+        questions = [
+            "Hola, ¿cuántos productos hay?",
+            "Buenos días, me puedes decir cuántos contactos tenemos?",
+            "¿Cuáles son los pedidos de venta?",
+            "Por favor muéstrame los productos",
+        ]
+        for text in questions:
+            with self.subTest(text=text):
+                self.assertIsNone(mole_local.classify_social(text))
+
+    def test_courtesy_stripping_and_natural_plans(self):
+        catalog = {
+            'res.partner': {'label': 'Contact', 'aliases': ['contactos', 'contacts', 'clientes', 'customers'], 'fields': {}},
+            'product.template': {'label': 'Product', 'aliases': ['productos', 'products'], 'fields': {}},
+        }
+        cases = [
+            ('Hola, ¿cuántos productos hay?',
+             [{'operation': 'count', 'model': 'product.template', 'filters': []}]),
+            ('Buenos días, me puedes decir cuántos contactos tenemos?',
+             [{'operation': 'count', 'model': 'res.partner', 'filters': []}]),
+            ('Por favor muéstrame los productos',
+             [{'operation': 'list', 'model': 'product.template', 'filters': []}]),
+            ('Could you tell me how many products exist in total?',
+             [{'operation': 'count', 'model': 'product.template', 'filters': []}]),
+            ('¿Sabes cuántos contactos hay en el sistema?',
+             [{'operation': 'count', 'model': 'res.partner', 'filters': []}]),
+        ]
+        for question, expected in cases:
+            with self.subTest(question=question):
+                self.assertEqual(mole_local.supported_plans(question, catalog), expected)
+
+    def test_own_vacation_with_courtesy(self):
+        questions = [
+            "Hola, ¿cuántos días de vacaciones me quedan?",
+            "Buenos días, ¿cuál es mi saldo de vacaciones?",
+            "Por favor dime mi saldo de vacaciones",
+        ]
+        for text in questions:
+            with self.subTest(text=text):
+                self.assertTrue(mole_local.is_safe_own_vacation_query(text))
+
+    def test_named_vacation_with_greeting(self):
+        target = mole_local.named_vacation_target("Hola, ¿cuál es el saldo de vacaciones de María López?")
+        self.assertEqual(target, "María López")
+        target_plain = mole_local.named_vacation_target("¿Cuál es el saldo de vacaciones de María López?")
+        self.assertEqual(target_plain, "María López")

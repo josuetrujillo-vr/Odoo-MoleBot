@@ -129,7 +129,7 @@ class TestChatApi(TransactionCase):
         execute.assert_called_once()
         self.assertEqual(response["status"], "ok")
         bodies = [m["body"] for m in response["messages"]]
-        self.assertTrue(any("Registros activos visibles de Product: 3" in body for body in bodies), bodies)
+        self.assertTrue(any("registros activos de **Product**" in body and "**3**" in body for body in bodies), bodies)
 
     def test_chat_falls_back_when_general_plan_is_declined(self):
         thread = self.thread.with_user(self.alice)

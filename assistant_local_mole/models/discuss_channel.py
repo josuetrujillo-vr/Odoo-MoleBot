@@ -3,9 +3,9 @@ import re
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import html2plaintext
-from odoo.addons.assistant_local.general_query import format_result
+from odoo.addons.assistant_local.general_query import format_result, format_vacation_balance
 from odoo.addons.assistant_local.mole_local import (
-    is_safe_own_vacation_query, named_vacation_target, supported_plans,
+    is_safe_own_vacation_query, named_vacation_target, supported_plans, classify_social,
 )
 from odoo.addons.assistant_local.stock_nl import detect_language
 
@@ -167,7 +167,8 @@ class AssistantMoleDiscussChannel(models.Model):
                 result = self.env["assistant.capability"]._execute_capability(
                     "hr.vacation.balance.get_by_name", {"name": target}
                 )
-                self._assistant_mole_post_message(self._format_vacation_balance(result))
+                lang = detect_language(question)
+                self._assistant_mole_post_message(self._format_vacation_balance(result, language=lang))
             except (UserError, ValidationError, ValueError, AccessError):
                 self._assistant_mole_post_error(
                     "No se puede consultar el saldo con esos datos o permisos."
@@ -260,7 +261,8 @@ class AssistantMoleDiscussChannel(models.Model):
             try:
                 result = self.env["assistant.capability"]._execute_capability(name, arguments)
                 executed_any = True
-                self._assistant_mole_post_message(self._format_vacation_balance(result))
+                lang = detect_language(question)
+                self._assistant_mole_post_message(self._format_vacation_balance(result, language=lang))
             except (UserError, ValidationError, ValueError, AccessError) as exc:
                 self._assistant_mole_post_error(
                     "No se pudo obtener el saldo de vacaciones: %s" % (exc,)
@@ -299,30 +301,51 @@ class AssistantMoleDiscussChannel(models.Model):
                 )
                 return
 
-            greeting = re.search(
-                r"\b(?:hola|buenos dias|buenas tardes|buenas noches|que tal|saludos|"
-                r"ayuda|que puedes hacer|como funcionas|que puedes responder|"
-                r"que sabes hacer|que haces|en que me puedes ayudar|"
-                r"hello|hi|hey|good morning|good afternoon|good evening|help|"
-                r"what can you do|how do you work|what can you answer|"
-                r"what do you know|what do you do|how can you help)\b",
-                norm_q,
-            )
-            if greeting:
+            social_intent = classify_social(question)
+            if social_intent == "greeting":
                 if english:
                     self._assistant_mole_post_message(
                         "Hi! I am Mole, your Odoo assistant. I can look up information your "
                         "user is allowed to see (contacts, products, sale orders, purchases, "
                         "tasks, your vacation balance and more), answer stock quantity and "
                         "location questions, and prepare internal stock transfers for your "
-                        "confirmation. Ask how many or which records exist, or quote a record "
-                        "name to get its details."
+                        "confirmation. How can I help you today?"
                     )
                 else:
                     self._assistant_mole_post_message(
                         "¡Hola! Soy Mole, tu asistente en Odoo. Puedo ayudarte a consultar información según tus permisos en el sistema "
-                        "(por ejemplo: contactos, productos, pedidos de venta, compras, tareas, tu saldo de vacaciones y más). "
-                        "Puedes preguntarme cuántos o cuáles registros hay, o pedir información de uno en específico indicando su nombre entre comillas."
+                        "(contactos, productos, pedidos de venta, compras, tareas, inventario, tu saldo de vacaciones y más). "
+                        "¿En qué te puedo apoyar hoy?"
+                    )
+                return
+            elif social_intent == "gratitude":
+                if english:
+                    self._assistant_mole_post_message(
+                        "You're very welcome! Feel free to ask if you need anything else."
+                    )
+                else:
+                    self._assistant_mole_post_message(
+                        "¡Con mucho gusto! Quedo a tu disposición si necesitas consultar algo más."
+                    )
+                return
+            elif social_intent == "farewell":
+                if english:
+                    self._assistant_mole_post_message(
+                        "Goodbye! Have a great day."
+                    )
+                else:
+                    self._assistant_mole_post_message(
+                        "¡Hasta luego! Que tengas un excelente día."
+                    )
+                return
+            elif social_intent == "acknowledgment":
+                if english:
+                    self._assistant_mole_post_message(
+                        "Great! Let me know whenever you need anything else."
+                    )
+                else:
+                    self._assistant_mole_post_message(
+                        "¡Excelente! Dime si requieres consultar alguna otra información."
                     )
                 return
 
@@ -372,23 +395,8 @@ class AssistantMoleDiscussChannel(models.Model):
                 "No se pudo procesar la consulta general; no se inventaron datos."
             )
 
-    def _format_vacation_balance(self, result):
-        if not isinstance(result, dict):
-            return "Saldo de vacaciones no disponible."
-        lines = ["Saldo de vacaciones (LFT):"]
-        if result.get("employee"):
-            lines.append("Empleado: %s" % result.get("employee"))
-        if result.get("service_years") is not None:
-            lines.append("Antigüedad (años): %s" % result.get("service_years"))
-        if result.get("entitlement_days") is not None:
-            lines.append("Días de derecho: %s" % result.get("entitlement_days"))
-        if result.get("approved_days") is not None:
-            lines.append("Días aprobados: %s" % result.get("approved_days"))
-        if result.get("available_days") is not None:
-            lines.append("Días disponibles: %s" % result.get("available_days"))
-        if result.get("next_anniversary"):
-            lines.append("Próximo aniversario: %s" % result.get("next_anniversary"))
-        return "\n".join(lines)
+    def _format_vacation_balance(self, result, language="es"):
+        return format_vacation_balance(result, language=language)
 
     def _assistant_mole_post_message(self, body):
         self.ensure_one()
