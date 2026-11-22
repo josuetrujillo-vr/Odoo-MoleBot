@@ -1,8 +1,5 @@
-from datetime import datetime, time, timedelta
-
 from odoo import api, models
 from odoo.exceptions import AccessError
-import re
 
 
 class AssistantHrHolidaysCapability(models.AbstractModel):
@@ -17,88 +14,69 @@ class AssistantHrHolidaysCapability(models.AbstractModel):
             self._get_own_vacation_balance,
         )
         capabilities["hr.vacation.balance.get_by_name"] = (
-            {"name": str}, self._get_named_vacation_balance,
+            {"name": str},
+            self._get_vacation_balance_by_name,
         )
         return capabilities
 
-    @api.model
-    def _get_named_vacation_balance(self, model, arguments):
-        env = model.env
-        denied = env._("No se puede consultar el saldo con esos datos o permisos.")
-        name = arguments["name"]
-        if (not env.user.has_group("hr.group_hr_user") or
-                not isinstance(name, str) or len(name.strip()) < 3 or
-                len(name) > 150 or not re.fullmatch(r"[^\W\d_]+(?:[ '\-][^\W\d_]+)*", name, re.UNICODE)):
-            raise ValueError(denied)
-        try:
-            employees = env["hr.employee"].search([
-                ("company_id", "=", env.company.id), ("name", "=ilike", name),
-            ], limit=2)
-            if len(employees) != 1:
-                raise ValueError(denied)
-            employee = employees[0]
-            employee.check_access("read")
-            if env["hr.employee"].sudo().search_count([
-                ("company_id", "=", env.company.id), ("name", "=ilike", name),
-            ], limit=2) != 1:
-                raise ValueError(denied)
-            employee.read(["lft_hire_date", "resource_id", "resource_calendar_id"])
-            if not employee.lft_hire_date or not employee.resource_calendar_id or not employee.resource_id:
-                raise ValueError(denied)
-            calendar = employee.resource_calendar_id
-            calendar.read(["tz", "two_weeks_calendar"])
-            employee.resource_id.read(["tz", "calendar_id", "company_id"])
-            _, period_start, period_end = employee._lft_period_values()
-            vacation_type = env.ref(
-                "l10n_mx_hr_holidays_lft.leave_type_lft_vacation", raise_if_not_found=False
-            )
-            if not vacation_type:
-                raise ValueError(denied)
-            if period_start and vacation_type:
-                domain = [
-                    ("employee_id", "=", employee.id),
-                    ("holiday_status_id", "=", vacation_type.id),
-                    ("state", "=", "validate"),
-                    ("request_date_to", ">=", period_start),
-                    ("request_date_from", "<", period_end),
-                ]
-                leaves = env["hr.leave"].with_context(allowed_company_ids=[env.company.id])
-                # A scoped count detects hidden relevant leave; never calculate or expose it with sudo.
-                if leaves.search_count(domain) != leaves.sudo().search_count(domain):
-                    raise ValueError(denied)
-            attendance_domain = [
-                ("calendar_id", "=", calendar.id),
-                ("resource_id", "in", [False, employee.resource_id.id]),
-                ("display_type", "=", False),
-                ("day_period", "!=", "lunch"),
-            ]
-            attendances = env["resource.calendar.attendance"]
-            if attendances.search_count(attendance_domain) != attendances.sudo().search_count(attendance_domain):
-                raise ValueError(denied)
-            calendar_domain = [
-                ("company_id", "=", env.company.id),
-                ("calendar_id", "in", [False, calendar.id]),
-                ("resource_id", "in", [False, employee.resource_id.id]),
-                ("time_type", "=", "leave"),
-                ("date_from", "<=", datetime.combine(period_end + timedelta(days=2), time.max)),
-                ("date_to", ">=", datetime.combine(period_start - timedelta(days=2), time.min)),
-            ]
-            calendar_leaves = env["resource.calendar.leaves"]
-            if calendar_leaves.search_count(calendar_domain) != calendar_leaves.sudo().search_count(calendar_domain):
-                raise ValueError(denied)
-            fields = ["name", "lft_service_years", "lft_entitlement_days", "lft_approved_days", "lft_available_days", "lft_next_anniversary"]
-            employee.invalidate_recordset(fields)
-            values = employee.read(fields)[0]
-        except AccessError:
-            raise ValueError(denied) from None
+    def _vacation_balance_payload(self, balance_employee, capability, identity_source, employee_resolution):
+        env = balance_employee.env
+        date_value = lambda value: value.isoformat() if value else None
         return {
-            "employee": values["name"],
-            "service_years": values["lft_service_years"],
-            "entitlement_days": values["lft_entitlement_days"],
-            "approved_days": values["lft_approved_days"],
-            "available_days": values["lft_available_days"],
-            "next_anniversary": values["lft_next_anniversary"],
+            "employee": balance_employee.name,
+            "company_id": balance_employee.company_id.id,
+            "company": balance_employee.company_id.name,
+            "hire_date": date_value(balance_employee.lft_hire_date),
+            "service_years": float(balance_employee.lft_service_years or 0.0),
+            "period_start": date_value(balance_employee.lft_period_start),
+            "next_anniversary": date_value(balance_employee.lft_next_anniversary),
+            "entitlement_days": float(balance_employee.lft_entitlement_days or 0.0),
+            "approved_days": float(balance_employee.lft_approved_days or 0.0),
+            "pending_approved_days": float(balance_employee.lft_pending_approved_days or 0.0),
+            "migration_applied_days": float(balance_employee.lft_migration_applied_days or 0.0),
+            "available_days": float(balance_employee.lft_available_days or 0.0),
+            "days_to_reset": float(balance_employee.lft_days_to_reset or 0.0),
+            "criteria": {
+                "capability": capability,
+                "source": "l10n_mx_hr_holidays_lft.models.hr_employee._compute_lft_balance",
+                "identity_source": identity_source,
+                "company_source": "env.company",
+                "employee_resolution": employee_resolution,
+                "sudo_scope": "Only authorized via hr.employee._lft_balance_employee",
+                "functional_writes": "none",
+            },
         }
+
+    @api.model
+    def _get_vacation_balance_by_name(self, _model, arguments):
+        """Return LFT vacation balance for the named employee if authorized."""
+        env = _model.env
+        name = arguments.get("name") if isinstance(arguments, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(env._("Employee name is required."))
+        name = name.strip()
+        employees = env["hr.employee"].search(
+            [("name", "=ilike", name), ("company_id", "=", env.company.id)]
+        )
+        if not employees:
+            employees = env["hr.employee"].search(
+                [("name", "ilike", name), ("company_id", "=", env.company.id)], limit=5
+            )
+        if not employees:
+            raise ValueError(env._("No employee was found with that name in this company."))
+        if len(employees) > 1:
+            names = ", ".join(employees.mapped("name")[:5])
+            raise ValueError(env._("Multiple employees match that name: %s") % names)
+        employee = employees[0]
+        balance_employee = employee._lft_balance_employee()
+        if not balance_employee:
+            raise AccessError(env._("The current user is not authorized to read this vacation balance."))
+        return self._vacation_balance_payload(
+            balance_employee,
+            "hr.vacation.balance.get_by_name",
+            "argument:name",
+            "hr.employee search by name in env.company",
+        )
 
     @api.model
     def _get_own_vacation_balance(self, _model, _arguments):
