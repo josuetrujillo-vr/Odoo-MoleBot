@@ -7,13 +7,8 @@ class TestMessageSecurity(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env = cls.env(context=dict(cls.env.context, no_reset_password=True))
-        cls.alice = new_test_user(
-            cls.env, login="assistant_message_alice", groups="base.group_user", context={"no_reset_password": True}
-        )
-        cls.bob = new_test_user(
-            cls.env, login="assistant_message_bob", groups="base.group_user", context={"no_reset_password": True}
-        )
+        cls.alice = new_test_user(cls.env, login="assistant_message_alice", groups="base.group_user")
+        cls.bob = new_test_user(cls.env, login="assistant_message_bob", groups="base.group_user")
         cls.thread = cls.env["assistant.conversation"].with_user(cls.alice).create({"name": "Private"})
 
     def test_user_can_create_and_read_own_message(self):

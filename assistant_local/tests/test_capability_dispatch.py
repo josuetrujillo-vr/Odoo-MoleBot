@@ -9,10 +9,7 @@ class TestCapabilityDispatch(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env = cls.env(context=dict(cls.env.context, no_reset_password=True))
-        cls.user = new_test_user(
-            cls.env, login="assistant_dispatch_user", groups="base.group_user", context={"no_reset_password": True}
-        )
+        cls.user = new_test_user(cls.env, login="assistant_dispatch_user", groups="base.group_user")
 
     def test_unknown_tool_is_rejected(self):
         engine = self.env["assistant.capability"].with_user(self.user)

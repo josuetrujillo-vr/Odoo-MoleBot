@@ -7,13 +7,8 @@ class TestAuditSecurity(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env = cls.env(context=dict(cls.env.context, no_reset_password=True))
-        cls.alice = new_test_user(
-            cls.env, login="assistant_audit_alice", groups="base.group_user", context={"no_reset_password": True}
-        )
-        cls.bob = new_test_user(
-            cls.env, login="assistant_audit_bob", groups="base.group_user", context={"no_reset_password": True}
-        )
+        cls.alice = new_test_user(cls.env, login="assistant_audit_alice", groups="base.group_user")
+        cls.bob = new_test_user(cls.env, login="assistant_audit_bob", groups="base.group_user")
 
     def test_user_cannot_forge_change_or_delete_audit(self):
         audits = self.env["assistant.audit"].with_user(self.alice)

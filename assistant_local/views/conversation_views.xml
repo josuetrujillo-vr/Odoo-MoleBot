@@ -21,6 +21,6 @@
         <field name="res_model">assistant.conversation</field>
         <field name="view_mode">list,form</field>
     </record>
-    <delete model="ir.ui.menu" id="assistant_conversation_menu"/>
-    <delete model="ir.ui.menu" id="assistant_root_menu"/>
+    <menuitem id="assistant_root_menu" name="Asistente" groups="base.group_user" sequence="80"/>
+    <menuitem id="assistant_conversation_menu" name="Conversaciones" parent="assistant_root_menu" action="assistant_conversation_action" sequence="10"/>
 </odoo>

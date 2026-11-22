@@ -33,3 +33,6 @@ venv/
 /tools/create_antigravity_db.py
 /tools/setup_mole_demo.py
 /tools/check_*.py
+/tools/*.ps1
+.backup_sync*
+

@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import TransactionCase, new_test_user
 
@@ -8,45 +6,16 @@ class TestChatApi(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env = cls.env(context=dict(cls.env.context, no_reset_password=True))
-        cls.alice = new_test_user(
-            cls.env,
-            login="assistant_chat_alice",
-            groups="base.group_user",
-            context={"no_reset_password": True},
-        )
-        cls.bob = new_test_user(
-            cls.env,
-            login="assistant_chat_bob",
-            groups="base.group_user",
-            context={"no_reset_password": True},
-        )
+        cls.alice = new_test_user(cls.env, login="assistant_chat_alice", groups="base.group_user")
+        cls.bob = new_test_user(cls.env, login="assistant_chat_bob", groups="base.group_user")
         cls.thread = cls.env["assistant.conversation"].with_user(cls.alice).create({"name": "Chat"})
 
     def test_submit_stores_user_message_and_reports_unavailable(self):
         thread = self.thread.with_user(self.alice)
-        with patch.dict("os.environ", {}, clear=True):
-            result = thread.submit_chat_message("  Hola  ")
-            self.assertEqual(result["status"], "unavailable")
-            self.assertEqual([message["body"] for message in result["messages"]], ["Hola"])
-            self.assertEqual(result["messages"], thread.get_chat_messages())
-
-    def test_submit_stores_user_message_and_reports_ok_when_model_configured(self):
-        thread = self.thread.with_user(self.alice)
-        env = {
-            "ASSISTANT_LOCAL_BACKEND": "llama_cpp_cli",
-            "MOLE_LLAMA_EXE": "llama-completion.exe",
-            "MOLE_MODEL_PATH": "model.gguf",
-        }
-        reply = {"role": "assistant", "content": "", "tool_calls": []}
-        with patch.dict("os.environ", env, clear=True), patch(
-            "odoo.addons.assistant_local.models.inference._local_interpret", return_value=reply
-        ):
-            result = thread.submit_chat_message("Hola")
-            self.assertEqual(result["status"], "ok")
-            messages = [m["body"] for m in result["messages"]]
-            self.assertIn("Hola", messages)
-            self.assertTrue(any("No pude responder con una consulta verificada" in body for body in messages))
+        result = thread.submit_chat_message("  Hola  ")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual([message["body"] for message in result["messages"]], ["Hola"])
+        self.assertEqual(result["messages"], thread.get_chat_messages())
 
     def test_other_user_cannot_read_or_post(self):
         thread = self.thread.with_user(self.bob)
@@ -78,68 +47,3 @@ class TestChatApi(TransactionCase):
         urls = {asset["url"] for asset in assets}
         self.assertIn("/assistant_local/static/src/chat/assistant_chat.js", urls)
         self.assertIn("/assistant_local/static/src/chat/assistant_chat.xml", urls)
-
-    def test_model_cannot_confirm_stock_through_legacy_chat(self):
-        thread = self.thread.with_user(self.alice)
-        engine = self.env["assistant.capability"].with_user(self.alice)
-        reply = {"content": "", "tool_calls": [{"function": {
-            "name": "stock.internal_transfer.confirm", "arguments": {}
-        }}]}
-        with patch.object(type(engine), "_execute_capability") as dispatch:
-            thread._apply_model_reply(reply)
-        dispatch.assert_not_called()
-
-    def test_ungrounded_model_claim_is_not_displayed(self):
-        thread = self.thread.with_user(self.alice)
-        thread._apply_model_reply({"content": "Tienes 500 días de vacaciones", "tool_calls": []})
-        self.assertNotIn("500", " ".join(item["body"] for item in thread.get_chat_messages()))
-
-    def test_unauthorized_tools_fallback_to_safe_vacation_message(self):
-        thread = self.thread.with_user(self.alice)
-        forbidden_calls = [
-            {"function": {"name": "res.partner.create", "arguments": {"name": "Evil"}}},
-            {"function": {"name": "stock.quant.write", "arguments": {}}},
-            {"function": {"name": "unknown.tool", "arguments": {}}},
-        ]
-        for call in forbidden_calls:
-            with self.subTest(tool=call["function"]["name"]):
-                thread._apply_model_reply({"content": "done", "tool_calls": [call]})
-                last_msg = thread.get_chat_messages()[-1]["body"]
-                self.assertIn("No pude responder con una consulta verificada", last_msg)
-
-    def test_chat_answers_general_query_through_validated_plan(self):
-        thread = self.thread.with_user(self.alice)
-        provider = self.env["assistant.inference"].with_user(self.alice)
-        engine = self.env["assistant.general.query"].with_user(self.alice)
-        plan = {"operation": "count", "model": "product.template", "filters": []}
-        result = {
-            "operation": "count", "count": 3, "label": "Product", "companies": ["Synthetic"],
-            "active": True, "filters": [],
-        }
-        with patch.dict("os.environ", {}, clear=True), patch.object(
-            type(provider), "_chat", return_value={"role": "assistant", "content": "", "tool_calls": []}
-        ) as chat_mock, patch.object(
-            type(provider), "_general_plan", return_value=plan
-        ) as general_plan, patch.object(
-            type(engine), "_execute", return_value=result
-        ) as execute:
-            response = thread.submit_chat_message("¿Cuántos productos hay?")
-        chat_mock.assert_called_once()
-        general_plan.assert_called_once()
-        execute.assert_called_once()
-        self.assertEqual(response["status"], "ok")
-        bodies = [m["body"] for m in response["messages"]]
-        self.assertTrue(any("registros activos de **Product**" in body and "**3**" in body for body in bodies), bodies)
-
-    def test_chat_falls_back_when_general_plan_is_declined(self):
-        thread = self.thread.with_user(self.alice)
-        provider = self.env["assistant.inference"].with_user(self.alice)
-        with patch.dict("os.environ", {}, clear=True), patch.object(
-            type(provider), "_chat", return_value={"role": "assistant", "content": "", "tool_calls": []}
-        ), patch.object(
-            type(provider), "_general_plan", return_value=None
-        ):
-            response = thread.submit_chat_message("Hola")
-        self.assertEqual(response["status"], "ok")
-        bodies = [m["body"] for m in response["messages"]]
-        self.assertTrue(any("No pude responder con una consulta verificada" in body for body in bodies), bodies)

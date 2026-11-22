@@ -4,13 +4,8 @@ from odoo.tests import HttpCase, new_test_user, tagged
 @tagged("post_install", "-at_install")
 class TestChatBrowser(HttpCase):
     def test_chat_opens_and_reports_unavailable(self):
-        user = new_test_user(
-            self.env,
-            login="assistant_browser",
-            password="assistant_browser",
-            groups="base.group_user",
-            context={"no_reset_password": True},
-        )
+        user = new_test_user(self.env, login="assistant_browser", password="assistant_browser",
+                             groups="base.group_user")
         conversation = self.env["assistant.conversation"].with_user(user).create({"name": "Browser test"})
         self.browser_js(
             "/web#id=%s&model=assistant.conversation&view_type=form" % conversation.id,
