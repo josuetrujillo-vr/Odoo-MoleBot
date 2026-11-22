@@ -161,6 +161,42 @@ if __name__ == "__main__":
     unittest.main()
 
 class GeneralInterpretTests(unittest.TestCase):
+    def test_index_context_is_limited_to_permitted_catalog_models(self):
+        catalog = {'hr.employee': {'label': 'Employee', 'aliases': ['employees'], 'fields': {}}}
+        index = [{'model': 'hr.employee', 'description': 'Staff'},
+                 {'model': 'secret.model', 'description': 'Private marker'}]
+        with patch.object(mole_local, '_complete', return_value='null') as complete:
+            mole_local.interpret_general('How many employees are there?', catalog, 'exe', 'model', index)
+        prompt = complete.call_args.args[0]
+        self.assertIn('Staff', prompt)
+        self.assertNotIn('Private marker', prompt)
+
+    def test_reported_count_phrases_and_unsupported_criteria(self):
+        catalog = {
+            'hr.employee': {'label': 'Empleado', 'aliases': ['empleados', 'employee', 'employees'], 'fields': {}},
+            'res.partner': {'label': 'Contacto', 'aliases': ['contact', 'contacts'], 'fields': {}},
+            'product.template': {'label': 'Producto', 'aliases': ['product', 'products'], 'fields': {}},
+        }
+        for question, model in [
+            ('How many employees are in this company? just the active ones', 'hr.employee'),
+            ('How many employees are?', 'hr.employee'),
+            ('how many contacts are?', 'res.partner'),
+            ('how many contacts there are', 'res.partner'),
+            ('Cuantos empleados hay registrados en odoo?', 'hr.employee'),
+        ]:
+            with self.subTest(question=question):
+                self.assertEqual(mole_local.supported_plans(question, catalog),
+                                 [{'operation': 'count', 'model': model, 'filters': []}])
+        for question in ('how many products/contacts there are', 'how many inactive employees are there',
+                         'how many employees in another company', 'how many employees in sales are there'):
+            with self.subTest(question=question):
+                self.assertEqual(mole_local.supported_plans(question, catalog), [])
+
+    def test_employee_count_in_company(self):
+        catalog = {'hr.employee': {'label': 'Employee', 'aliases': ['empleados'], 'fields': {}}}
+        self.assertEqual(mole_local.supported_plans('¿Cuántos empleados hay en la empresa?', catalog),
+                         [{'operation': 'count', 'model': 'hr.employee', 'filters': []}])
+
     def test_english_count_list_and_read_plans(self):
         catalog = {
             'res.partner': {

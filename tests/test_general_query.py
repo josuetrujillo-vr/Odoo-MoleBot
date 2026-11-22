@@ -8,6 +8,12 @@ query = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(query)
 
 class GeneralPlanTests(unittest.TestCase):
+    def test_employee_count_uses_natural_language_and_company(self):
+        result = {'operation': 'count', 'model': 'hr.employee', 'count': 7,
+                  'label': 'Employee', 'companies': ['ACME'], 'active': True, 'filters': []}
+        self.assertEqual(query.format_result(result), 'Hay **7** empleados activos en ACME.')
+        self.assertEqual(query.format_result(result, language='en'), 'There are **7** active employees in ACME.')
+
     def setUp(self):
         self.catalog = {'sale.order': {'state': {'type': 'selection', 'values': ['draft', 'sale']}, 'name': {'type': 'char'}}, 'product.template': {'name': {'type': 'char'}}}
 

@@ -6,6 +6,7 @@ from odoo.exceptions import UserError
 from ..local_model import chat as _local_chat
 from ..mole_local import interpret as _local_interpret
 from ..mole_local import interpret_general
+from ..odoo_index import search as search_odoo_index
 
 
 chat = _local_chat
@@ -65,6 +66,10 @@ class AssistantInference(models.AbstractModel):
         if not executable or not model:
             raise UserError(self.env._("No local model is configured."))
         try:
-            return interpret_general(question, catalog, executable, model)
+            try:
+                index_entries = search_odoo_index(question, limit=12)
+            except (OSError, ValueError):
+                index_entries = []
+            return interpret_general(question, catalog, executable, model, index_entries)
         except (ValueError, OSError, RuntimeError) as exc:
             raise UserError(self.env._("Local model inference failed: %s") % exc) from exc

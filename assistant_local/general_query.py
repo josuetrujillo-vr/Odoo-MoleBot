@@ -21,6 +21,14 @@ def format_result(result, language='es'):
         archived = 'active ' if result.get('active') else ''
         archived_es = 'activos ' if result.get('active') else ''
 
+        if result.get('model') == 'hr.employee' and not filters:
+            if english:
+                noun = 'employee' if count == 1 else 'employees'
+                return f"There {'is' if count == 1 else 'are'} **{count}** {'active ' if result.get('active') else ''}{noun}{company_context_en}."
+            noun = 'empleado' if count == 1 else 'empleados'
+            active = (' activo' if count == 1 else ' activos') if result.get('active') else ''
+            return f'Hay **{count}** {noun}{active}{company_context}.'
+
         if english:
             criteria = (f' with name equal to "{filters[0]["value"]}"'
                         if filters else '')

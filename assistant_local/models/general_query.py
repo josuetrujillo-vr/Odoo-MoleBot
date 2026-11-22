@@ -26,37 +26,22 @@ ALLOWED_MODELS = frozenset({
     'maintenance.request',
 })
 MODEL_ALIASES = {
-    'res.partner': ['contacto', 'contactos', 'cliente', 'clientes', 'proveedor', 'proveedores', 'partner', 'partners',
-                    'contact', 'contacts', 'customer', 'customers', 'vendor', 'vendors', 'supplier', 'suppliers'],
-    'product.template': ['producto', 'productos', 'artículo', 'artículos', 'articulo', 'articulos',
-                         'product', 'products', 'article', 'articles', 'item', 'items'],
-    'product.product': ['variante', 'variantes', 'variante de producto', 'variantes de producto',
-                        'variant', 'variants', 'product variant', 'product variants'],
-    'sale.order': ['pedido de venta', 'pedidos de venta', 'orden de venta', 'ordenes de venta', 'venta', 'ventas', 'cotización', 'cotizaciones', 'cotizacion',
-                   'sale order', 'sale orders', 'sales order', 'sales orders', 'quotation', 'quotations', 'quote', 'quotes'],
-    'purchase.order': ['pedido de compra', 'pedidos de compra', 'orden de compra', 'ordenes de compra', 'compra', 'compras',
-                       'purchase order', 'purchase orders', 'purchase', 'purchases'],
-    'stock.picking': ['transferencia', 'transferencias', 'albarán', 'albaranes', 'albaran', 'envío', 'envíos', 'envio', 'envios', 'entrega', 'entregas',
-                      'transfer', 'transfers', 'delivery', 'deliveries', 'shipment', 'shipments', 'picking', 'pickings', 'receipt', 'receipts'],
-    'stock.quant': ['inventario', 'existencia', 'existencias', 'stock', 'quants',
-                    'inventory', 'stock level', 'stock levels', 'quant'],
-    'project.task': ['tarea', 'tareas', 'actividad', 'actividades',
-                     'task', 'tasks', 'activity', 'activities', 'to-do', 'to-dos'],
-    'project.project': ['proyecto', 'proyectos', 'project', 'projects'],
-    'crm.lead': ['oportunidad', 'oportunidades', 'iniciativa', 'iniciativas', 'lead', 'leads', 'prospecto', 'prospectos',
-                 'opportunity', 'opportunities', 'prospect', 'prospects'],
-    'account.move': ['factura', 'facturas', 'asiento', 'asientos', 'factura de cliente', 'facturas de cliente', 'factura de proveedor', 'facturas de proveedor',
-                     'invoice', 'invoices', 'bill', 'bills', 'journal entry', 'journal entries'],
-    'hr.employee': ['empleado', 'empleados', 'colaborador', 'colaboradores', 'trabajador', 'trabajadores',
-                    'employee', 'employees', 'worker', 'workers', 'staff'],
-    'hr.leave': ['ausencia', 'ausencias', 'permiso', 'permisos', 'vacaciones solicitadas',
-                 'leave', 'leaves', 'time off', 'absence', 'absences', 'vacation request', 'vacation requests'],
-    'hr.department': ['departamento', 'departamentos', 'área', 'áreas', 'area', 'areas',
-                      'department', 'departments'],
-    'calendar.event': ['evento', 'eventos', 'reunión', 'reuniones', 'reunion', 'cita', 'citas',
-                       'event', 'events', 'meeting', 'meetings', 'appointment', 'appointments'],
-    'maintenance.request': ['mantenimiento', 'solicitud de mantenimiento', 'petición de mantenimiento',
-                            'maintenance', 'maintenance request', 'maintenance requests', 'maintenance ticket', 'maintenance tickets'],
+    'res.partner': ['contacto', 'contactos', 'cliente', 'clientes', 'proveedor', 'proveedores', 'partner', 'partners', 'contact', 'contacts'],
+    'product.template': ['producto', 'productos', 'artículo', 'artículos', 'articulo', 'articulos', 'product', 'products'],
+    'product.product': ['variante', 'variantes', 'variante de producto', 'variantes de producto'],
+    'sale.order': ['pedido de venta', 'pedidos de venta', 'orden de venta', 'ordenes de venta', 'venta', 'ventas', 'cotización', 'cotizaciones', 'cotizacion'],
+    'purchase.order': ['pedido de compra', 'pedidos de compra', 'orden de compra', 'ordenes de compra', 'compra', 'compras'],
+    'stock.picking': ['transferencia', 'transferencias', 'albarán', 'albaranes', 'albaran', 'envío', 'envíos', 'envio', 'envios', 'entrega', 'entregas'],
+    'stock.quant': ['inventario', 'existencia', 'existencias', 'stock', 'quants'],
+    'project.task': ['tarea', 'tareas', 'actividad', 'actividades'],
+    'project.project': ['proyecto', 'proyectos'],
+    'crm.lead': ['oportunidad', 'oportunidades', 'iniciativa', 'iniciativas', 'lead', 'leads', 'prospecto', 'prospectos'],
+    'account.move': ['factura', 'facturas', 'asiento', 'asientos', 'factura de cliente', 'facturas de cliente', 'factura de proveedor', 'facturas de proveedor'],
+    'hr.employee': ['empleado', 'empleados', 'colaborador', 'colaboradores', 'trabajador', 'trabajadores', 'employee', 'employees'],
+    'hr.leave': ['ausencia', 'ausencias', 'permiso', 'permisos', 'vacaciones solicitadas'],
+    'hr.department': ['departamento', 'departamentos', 'área', 'áreas', 'area', 'areas'],
+    'calendar.event': ['evento', 'eventos', 'reunión', 'reuniones', 'reunion', 'cita', 'citas'],
+    'maintenance.request': ['mantenimiento', 'solicitud de mantenimiento', 'petición de mantenimiento'],
 }
 SENSITIVE = ('password', 'secret', 'token', 'bank', 'email', 'phone', 'mobile', 'vat', 'credit', 'salary', 'private', 'barcode', 'ssn', 'identification')
 
@@ -116,9 +101,11 @@ class AssistantGeneralQuery(models.AbstractModel):
             raise ValueError("Question is ambiguous or does not match the plan")
         model = self._safe_env_model(plan['model'])
         model.check_access('read')
+        if plan['model'] == 'hr.employee' and 'company_id' in model._fields:
+            domain = list(domain) + [('company_id', '=', self.env.company.id)]
         count = model.search_count(domain)
-        return {'operation': 'count', 'count': count, 'label': catalog[plan['model']]['label'],
-                'companies': self.env.companies.mapped('name'), 'active': 'active' in model._fields, 'filters': plan['filters']}
+        return {'operation': 'count', 'model': plan['model'], 'count': count, 'label': catalog[plan['model']]['label'],
+                'companies': (self.env.company if plan['model'] == 'hr.employee' else self.env.companies).mapped('name'), 'active': 'active' in model._fields, 'filters': plan['filters']}
 
     @api.model
     def _list(self, plan, question):

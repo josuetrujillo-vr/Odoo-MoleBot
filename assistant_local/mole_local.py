@@ -121,6 +121,7 @@ _NAMED_QUERY = re.compile(
     re.IGNORECASE,
 )
 
+
 _NAMED_TARGET_STOPWORDS = frozenset({
     "mi", "mis", "su", "sus", "tu", "tus", "nuestro", "nuestra",
     "el", "la", "los", "las", "un", "una", "unos", "unas",
@@ -169,7 +170,6 @@ def is_safe_own_vacation_query(question):
             return False
 
     norm = _normalize(question)
-    norm = _QUERY_COURTESY.sub("", norm).strip().strip("¿?¡! ")
     if not _VACATION_KEYWORD.search(norm):
         return False
     if _OUT_OF_SCOPE_ACTION.search(norm):
@@ -296,6 +296,7 @@ def supported_plans(question, catalog):
     text = re.sub(r'"([^"\r\n]{1,100})"', ' __literal__ ', question)
     normalized = re.sub(r'\s+', ' ', _normalize(text).strip().strip('¿?¡! '))
     normalized = _QUERY_COURTESY.sub('', normalized).strip().strip('¿?¡! ')
+    normalized = re.sub(r'\?\s*(just the active ones)$', r' \1', normalized)
 
     count_prefixes = (
         r'(?:(?:how many|how much)\s+(?:records?\s+of\s+)?|'
@@ -325,10 +326,11 @@ def supported_plans(question, catalog):
     count_suffixes = (
         r'(?: with name __literal__| named __literal__| called __literal__|'
         r' con nombre __literal__| llamados? __literal__| de nombre __literal__)?'
-        r'(?: hay| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
-        r' do we have| are there| exist| are available| is available)?'
+        r'(?: hay(?: registrados?)?| existen| tengo| tenemos| disponibles| registrados?| dados? de alta|'
+        r' do we have| are there| there are| are| exist| are available| is available)?'
         r'(?: en el sistema| en la empresa| en la compania| en total|'
-        r' in the system| in the company| in total| currently)?'
+        r' en odoo| in the system| in odoo| in the company| in this company| in total| currently)?'
+        r'(?: just the active ones)?'
     )
 
     list_prefixes = (
@@ -383,6 +385,13 @@ def supported_plans(question, catalog):
             # Check COUNT
             count_pat = count_prefixes + subject + r'(?:s|es)?' + count_suffixes
             if re.fullmatch(count_pat, normalized):
+                if (re.search(r'\b(?:in (?:the|this) company|en la (?:empresa|compania))\b', normalized)
+                        and name != 'hr.employee'):
+                    continue
+                if normalized.endswith('just the active ones') and name not in (
+                    'hr.employee', 'res.partner', 'product.template',
+                ):
+                    continue
                 filters = []
                 if quoted:
                     if 'name' not in entry.get('fields', {}):
@@ -424,7 +433,7 @@ def general_candidates(question, catalog):
     return [(p['model'], catalog[p['model']]['label']) for p in supported_plans(question, catalog)]
 
 
-def interpret_general(question, catalog, executable, model):
+def interpret_general(question, catalog, executable, model, index_entries=()):
     """Ask the model to select a structured plan from the allowed catalog.
 
     A separate conservative verifier rejects plans whose full meaning cannot be
@@ -453,11 +462,14 @@ def interpret_general(question, catalog, executable, model):
     public_catalog = {name: {'label': item['label'], 'aliases': item.get('aliases', []),
                              'fields': [field for field in item.get('fields', {}) if field == 'name']}
                       for name, item in catalog.items()}
+    hints = [{'model': entry['model'], 'description': str(entry.get('description') or '')[:160]}
+             for entry in index_entries if isinstance(entry, dict) and entry.get('model') in catalog][:12]
     prompt = ('<|im_start|>system\nSelecciona el modelo y operación del catálogo que corresponda a la pregunta. '
               'Devuelve un objeto JSON con operation (count, list o read), model y filters, o null si no entiendes. '
               'Para nombre entre comillas usa field=name, op=equals, value=el texto literal. '
               'No ignores ningún criterio. Si no puedes expresarlo, devuelve null. '
               'Catálogo: ' + json.dumps(public_catalog, ensure_ascii=False).replace('<|', '< |') +
+              '\nMetadatos del índice para modelos permitidos: ' + json.dumps(hints, ensure_ascii=False).replace('<|', '< |').replace('|>', '| >') +
               '\n<|im_end|>\n<|im_start|>user\n' + question.replace('<|', '< |').replace('|>', '| >') +
               '<|im_end|>\n<|im_start|>assistant\n')
     output = _complete(prompt, executable, model, grammar)
