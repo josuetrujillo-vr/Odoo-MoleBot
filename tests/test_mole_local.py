@@ -311,3 +311,59 @@ class GeneralInterpretTests(unittest.TestCase):
         self.assertEqual(target, "María López")
         target_plain = mole_local.named_vacation_target("¿Cuál es el saldo de vacaciones de María López?")
         self.assertEqual(target_plain, "María López")
+
+class AllEmployeesVacationQueryTests(unittest.TestCase):
+    def test_detects_all_employees_vacation_queries_in_spanish(self):
+        questions = (
+            "¿Cuántos empleados tengo y cuántos días de vacaciones tiene cada uno?",
+            "Días de vacaciones de cada empleado",
+            "Vacaciones de todos los empleados",
+            "Saldo de vacaciones de todos los trabajadores",
+            "Muéstrame las vacaciones de cada uno de los empleados",
+            "¿Cuántos días de vacaciones tiene cada empleado?",
+            "¿Cuántos días de vacaciones tienen todos?",
+            "Hola, ¿cuántos días de vacaciones tiene cada empleado?",
+        )
+        for text in questions:
+            with self.subTest(text=text):
+                self.assertTrue(mole_local.is_all_employees_vacation_query(text))
+
+    def test_detects_all_employees_vacation_queries_in_english(self):
+        questions = (
+            "How many employees do I have and how many vacation days does each have?",
+            "Vacation balance for each employee",
+            "Vacation days for all employees",
+            "How many vacation days does every employee have?",
+            "Vacation balance for everyone",
+            "Vacation balance for all of them",
+            "Vacation balance per employee",
+        )
+        for text in questions:
+            with self.subTest(text=text):
+                self.assertTrue(mole_local.is_all_employees_vacation_query(text))
+
+    def test_does_not_match_own_single_or_unrelated_queries(self):
+        questions = (
+            "¿Cuántos empleados tengo?",
+            "¿Cuántos días de vacaciones me quedan?",
+            "¿Cuántos días de vacaciones tiene Ana?",
+            "Saldo de vacaciones de mi jefe",
+            "Me voy de vacaciones mañana",
+            "Quiero pedir vacaciones",
+            "How many vacation days do I have each year?",
+            "How many contacts are there?",
+        )
+        for text in questions:
+            with self.subTest(text=text):
+                self.assertFalse(mole_local.is_all_employees_vacation_query(text))
+
+    def test_invalid_input_is_rejected(self):
+        invalid_inputs = ("", "   ", "x" * 4001, None, 123, "Hola\x00mundo")
+        for val in invalid_inputs:
+            with self.subTest(val=repr(val)):
+                self.assertFalse(mole_local.is_all_employees_vacation_query(val))
+
+
+if __name__ == "__main__":
+    unittest.main()
+

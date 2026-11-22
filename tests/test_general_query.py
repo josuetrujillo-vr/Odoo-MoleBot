@@ -138,4 +138,56 @@ class GeneralPlanTests(unittest.TestCase):
 
 
 
+    def test_vacation_all_formatting_spanish_and_english(self):
+        result = {
+            'company': 'ACME',
+            'total_employees': 2,
+            'employees': [
+                {'id': 1, 'name': 'Ana', 'available_days': 10.0,
+                 'entitlement_days': 12.0, 'approved_days': 2.0},
+                {'id': 2, 'name': 'Luis', 'available_days': 4.0,
+                 'entitlement_days': 12.0, 'approved_days': 8.0},
+            ],
+        }
+        text_es = query.format_vacation_all(result, language='es')
+        self.assertIn('En **ACME** hay **2** empleados:', text_es)
+        self.assertIn(
+            '- **Ana**: **10.0** días disponibles (de 12.0 correspondientes)', text_es
+        )
+        self.assertIn(
+            '- **Luis**: **4.0** días disponibles (de 12.0 correspondientes)', text_es
+        )
+
+        text_en = query.format_vacation_all(result, language='en')
+        self.assertIn('In **ACME** there are **2** employees:', text_en)
+        self.assertIn(
+            '- **Ana**: **10.0** days available (of 12.0 allocated)', text_en
+        )
+
+    def test_vacation_all_formatting_empty_and_invalid(self):
+        empty = {'company': 'ACME', 'total_employees': 0, 'employees': []}
+        self.assertIn(
+            'En **ACME** no hay empleados activos registrados.',
+            query.format_vacation_all(empty),
+        )
+        self.assertIn(
+            'no active employees',
+            query.format_vacation_all(empty, language='en'),
+        )
+        self.assertIn('no está disponible', query.format_vacation_all(None))
+
+    def test_vacation_all_formatting_singular(self):
+        result = {
+            'company': 'ACME',
+            'total_employees': 1,
+            'employees': [{'id': 1, 'name': 'Ana', 'available_days': 10.0,
+                           'entitlement_days': 12.0, 'approved_days': 2.0}],
+        }
+        self.assertIn('En **ACME** hay **1** empleado:', query.format_vacation_all(result))
+        self.assertIn(
+            'In **ACME** there is **1** employee:',
+            query.format_vacation_all(result, language='en'),
+        )
+
+
 if __name__ == '__main__': unittest.main()

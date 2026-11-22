@@ -17,6 +17,10 @@ class AssistantHrHolidaysCapability(models.AbstractModel):
             {"name": str},
             self._get_vacation_balance_by_name,
         )
+        capabilities["hr.vacation.balance.get_all"] = (
+            {},
+            self._get_all_vacation_balances,
+        )
         return capabilities
 
     def _vacation_balance_payload(self, balance_employee, capability, identity_source, employee_resolution):
@@ -77,6 +81,41 @@ class AssistantHrHolidaysCapability(models.AbstractModel):
             "argument:name",
             "hr.employee search by name in env.company",
         )
+
+    @api.model
+    def _get_all_vacation_balances(self, _model, _arguments):
+        """Return the LFT vacation balance of every active employee in the company."""
+        env = _model.env
+        user = env.user
+        if not (
+            user.has_group("hr.group_hr_user")
+            or user.has_group("hr_holidays.group_hr_holidays_user")
+        ):
+            raise AccessError(
+                env._("Only HR officers can consult all employees' vacation balances.")
+            )
+
+        employees = env["hr.employee"].search(
+            [("company_id", "=", env.company.id)]
+        )
+        rows = []
+        for employee in employees:
+            balance_employee = employee._lft_balance_employee()
+            if not balance_employee:
+                continue
+            rows.append({
+                "id": employee.id,
+                "name": employee.name,
+                "available_days": float(balance_employee.lft_available_days or 0.0),
+                "entitlement_days": float(balance_employee.lft_entitlement_days or 0.0),
+                "approved_days": float(balance_employee.lft_approved_days or 0.0),
+            })
+
+        return {
+            "company": env.company.name,
+            "total_employees": len(employees),
+            "employees": rows,
+        }
 
     @api.model
     def _get_own_vacation_balance(self, _model, _arguments):

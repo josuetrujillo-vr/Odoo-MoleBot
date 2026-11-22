@@ -43,6 +43,25 @@ _OUT_OF_SCOPE_ACTION = re.compile(
 
 _VACATION_KEYWORD = re.compile(r"\b(vacacion|vacaciones)\b")
 
+_VACATION_KEYWORD_ALL = re.compile(r"\b(vacacion(?:es)?|vacation(?:s)?)\b")
+
+_ALL_EMPLOYEES_SCOPE = re.compile(
+    r"\b(?:"
+    r"cada\s+(?:uno|una|quien|emplead[oa]|trabajador[a]?|colaborador[a]?|persona|miembro)"
+    r"|tod[oa]s\s+(?:(?:los|las|mis)\s+)?"
+    r"(?:emplead[oa]s?|trabajador(?:a|es|as)?|colaborador(?:a|es|as)?|personas|miembros)"
+    r"|tod[oa]s(?=\s*(?:[?.,;!]|$))"
+    r"|todo\s+el\s+(?:personal|equipo)"
+    r"|each(?!\s+(?:year|month|week|day|time))"
+    r"|every(?!\s+(?:year|month|week|day|time))"
+    r"|everyone|everybody"
+    r"|all\s+(?:the\s+|of\s+the\s+|my\s+)?"
+    r"(?:employees|workers|staff|people|collaborators|team)"
+    r"|all\s+of\s+them"
+    r"|per\s+(?:employee|worker|person|collaborator)"
+    r")\b"
+)
+
 _SAFE_DE_TARGETS = frozenset({
     "vacacion", "vacaciones", "descanso", "ley", "este", "esta", "ano", "anos",
     "periodo", "mi", "mis", "trabajo", "antiguedad", "dias", "saldo"
@@ -132,6 +151,7 @@ _NAMED_TARGET_STOPWORDS = frozenset({
     "trabajador", "trabajadora", "trabajadores", "trabajadoras",
     "supervisor", "supervisora", "gerente", "director", "directora",
     "subordinado", "subordinada", "equipo", "personal",
+    "cada", "todo", "todos", "todas",
 })
 
 
@@ -187,6 +207,25 @@ def is_safe_own_vacation_query(question):
             return False
 
     return True
+
+
+def is_all_employees_vacation_query(question):
+    """Detect questions asking for the vacation balance of every employee.
+
+    These queries are answered deterministically by the HR capability
+    ``hr.vacation.balance.get_all`` instead of the own-balance flow.
+    """
+    if not isinstance(question, str) or not question.strip() or len(question) > 4000:
+        return False
+    if "\x00" in question:
+        return False
+
+    norm = _normalize(question)
+    if not _VACATION_KEYWORD_ALL.search(norm):
+        return False
+    if _OUT_OF_SCOPE_ACTION.search(norm):
+        return False
+    return bool(_ALL_EMPLOYEES_SCOPE.search(norm))
 
 
 def interpret(question, executable, model):

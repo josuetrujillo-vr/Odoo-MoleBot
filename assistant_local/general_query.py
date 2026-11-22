@@ -134,6 +134,64 @@ def format_vacation_balance(result, language='es'):
     return "\n\n".join(lines) if lines else "El saldo de vacaciones no está disponible en este momento."
 
 
+def format_vacation_all(result, language='es'):
+    """Render every employee's vacation balance into a natural, conversational response."""
+    english = language == 'en'
+    if not isinstance(result, dict):
+        return ("Vacation balances are not available at this moment." if english
+                else "El saldo de vacaciones no está disponible en este momento.")
+
+    company = result.get("company") or ("the company" if english else "la empresa")
+    employees = result.get("employees") or []
+    total = result.get("total_employees")
+    if total is None:
+        total = len(employees)
+
+    if not employees:
+        if english:
+            return f"There are no active employees in **{company}**."
+        return f"En **{company}** no hay empleados activos registrados."
+
+    if english:
+        if total == 1:
+            lines = [f"In **{company}** there is **{total}** employee:"]
+        else:
+            lines = [f"In **{company}** there are **{total}** employees:"]
+        for employee in employees:
+            name = employee.get("name") or "Unknown employee"
+            available = employee.get("available_days")
+            entitlement = employee.get("entitlement_days")
+            if available is None:
+                lines.append(f"- **{name}**: no vacation balance available")
+            elif entitlement is None:
+                lines.append(f"- **{name}**: **{available}** days available")
+            else:
+                lines.append(
+                    f"- **{name}**: **{available}** days available "
+                    f"(of {entitlement} allocated)"
+                )
+        return "\n".join(lines)
+
+    if total == 1:
+        lines = [f"En **{company}** hay **{total}** empleado:"]
+    else:
+        lines = [f"En **{company}** hay **{total}** empleados:"]
+    for employee in employees:
+        name = employee.get("name") or "Empleado desconocido"
+        available = employee.get("available_days")
+        entitlement = employee.get("entitlement_days")
+        if available is None:
+            lines.append(f"- **{name}**: sin saldo de vacaciones disponible")
+        elif entitlement is None:
+            lines.append(f"- **{name}**: **{available}** días disponibles")
+        else:
+            lines.append(
+                f"- **{name}**: **{available}** días disponibles "
+                f"(de {entitlement} correspondientes)"
+            )
+    return "\n".join(lines)
+
+
 def validate_plan(plan, catalog, question):
     if not isinstance(plan, dict) or set(plan) not in (
         {'operation', 'model', 'filters'},

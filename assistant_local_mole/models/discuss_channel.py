@@ -3,9 +3,12 @@ import re
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import html2plaintext
-from odoo.addons.assistant_local.general_query import format_result, format_vacation_balance
+from odoo.addons.assistant_local.general_query import (
+    format_result, format_vacation_all, format_vacation_balance,
+)
 from odoo.addons.assistant_local.mole_local import (
-    is_safe_own_vacation_query, named_vacation_target, supported_plans, classify_social,
+    is_all_employees_vacation_query, is_safe_own_vacation_query,
+    named_vacation_target, supported_plans, classify_social,
 )
 from odoo.addons.assistant_local.stock_nl import detect_language
 
@@ -171,6 +174,21 @@ class AssistantMoleDiscussChannel(models.Model):
 
         question = html2plaintext(message.body or "")
         if self.env["assistant.mole.stock"]._handle_message(self, question):
+            return
+        if is_all_employees_vacation_query(question):
+            try:
+                result = self.env["assistant.capability"]._execute_capability(
+                    "hr.vacation.balance.get_all", {}
+                )
+                lang = detect_language(question)
+                self._assistant_mole_post_message(
+                    self._format_vacation_all(result, language=lang)
+                )
+            except (UserError, ValidationError, ValueError, AccessError):
+                self._assistant_mole_post_error(
+                    "No se puede consultar el saldo de vacaciones de todos los "
+                    "empleados con esos datos o permisos."
+                )
             return
         target = named_vacation_target(question)
         if target:
@@ -407,6 +425,9 @@ class AssistantMoleDiscussChannel(models.Model):
 
     def _format_vacation_balance(self, result, language="es"):
         return format_vacation_balance(result, language=language)
+
+    def _format_vacation_all(self, result, language="es"):
+        return format_vacation_all(result, language=language)
 
     def _assistant_mole_post_message(self, body):
         self.ensure_one()
