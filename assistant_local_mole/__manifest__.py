@@ -7,6 +7,7 @@
     "data": [
         "data/mole_partner.xml",
         "security/ir.model.access.csv",
+        "views/mole_menu.xml",
     ],
     "installable": True,
     "auto_install": False,

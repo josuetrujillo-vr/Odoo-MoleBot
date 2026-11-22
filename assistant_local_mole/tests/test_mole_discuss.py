@@ -25,6 +25,44 @@ class TestMoleDiscuss(TransactionCase):
         ch2 = self._ensure(self.alice)
         self.assertEqual(ch1.id, ch2.id)
 
+    def test_open_action_recovers_unpinned_chat(self):
+        channel = self._ensure(self.alice)
+        channel.with_user(self.alice).channel_pin(False)
+        action = self.env['discuss.channel'].with_user(self.alice).action_open_mole()
+        self.assertEqual(action['context']['active_id'], 'discuss.channel_%s' % channel.id)
+        self.assertTrue(channel.with_user(self.alice).channel_member_ids.filtered('is_self').is_pinned)
+
+    def test_employee_count_in_active_company(self):
+        officer = new_test_user(self.env, login='mole_count_officer', groups='base.group_user,hr.group_hr_user', context={'no_reset_password': True})
+        channel = self._ensure(officer)
+        self.env['hr.employee'].create({'name': 'Mole Count Test', 'company_id': self.env.company.id})
+        question = '¿Cuántos empleados hay en la empresa?'
+        expected = self.env['hr.employee'].with_user(officer).search_count([('company_id', '=', self.env.company.id)])
+        channel.with_user(officer).message_post(body=question, message_type='comment')
+        reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+        self.assertIn('**%s**' % expected, reply)
+
+    def test_reported_employee_and_contact_questions(self):
+        self.env['res.lang']._activate_lang('es_ES')
+        officer = new_test_user(self.env, login='mole_reported_officer', groups='base.group_user,hr.group_hr_user', context={'no_reset_password': True, 'lang': 'es_ES'})
+        channel = self._ensure(officer)
+        self.env['hr.employee'].create({'name': 'Mole Active Count', 'company_id': self.env.company.id})
+        self.env['hr.employee'].create({'name': 'Mole Archived Count', 'company_id': self.env.company.id, 'active': False})
+        cases = [
+            ('How many employees are in this company? just the active ones', 'hr.employee'),
+            ('How many employees are?', 'hr.employee'),
+            ('Cuantos empleados hay registrados en odoo?', 'hr.employee'),
+            ('how many contacts are?', 'res.partner'),
+            ('how many contacts there are', 'res.partner'),
+        ]
+        for question, model in cases:
+            with self.subTest(question=question):
+                domain = [('company_id', '=', self.env.company.id)] if model == 'hr.employee' else []
+                expected = self.env[model].with_user(officer).with_context(active_test=True).search_count(domain)
+                channel.with_user(officer).message_post(body=question, message_type='comment')
+                reply = channel.message_ids.sorted(key=lambda item: item.id)[-1].body
+                self.assertIn('**%s**' % expected, reply)
+
     def test_channel_has_exactly_two_members(self):
         ch = self._ensure(self.alice)
         partners = ch.channel_member_ids.mapped("partner_id")

@@ -112,6 +112,17 @@ class AssistantMoleDiscussChannel(models.Model):
             raise AccessError(self.env._("This Mole conversation does not belong to the current user."))
         return channel
 
+    @api.model
+    def action_open_mole(self):
+        channel = self.assistant_mole_ensure_for_current_user()
+        if not channel:
+            raise AccessError(self.env._("Mole is available to internal users only."))
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'mail.action_discuss',
+            'context': {'active_id': 'discuss.channel_%s' % channel.id},
+        }
+
     # ------------------------------------------------------------------
     # Response hook
     # ------------------------------------------------------------------
@@ -354,20 +365,19 @@ class AssistantMoleDiscussChannel(models.Model):
             if len(candidates) == 1 and policy[candidates[0]['model']].get('denied'):
                 raise AccessError("Read access denied")
             catalog = {name: item for name, item in policy.items() if not item.get('denied')}
-            plan = None
-            try:
-                plan = provider._general_plan(question, catalog)
-            except Exception:
-                pass
-            if plan is None and len(candidates) == 1:
-                plan = candidates[0]
+            plan = candidates[0] if len(candidates) == 1 else None
+            if plan is None:
+                try:
+                    plan = provider._general_plan(question, catalog)
+                except Exception:
+                    pass
             if plan is None:
                 self._assistant_mole_post_error(
-                    "I did not understand the request. You can ask, for example: how many "
-                    "products/contacts there are, show or list records, get a record by its "
+                    "I did not understand the request. You can ask, for example: 'How many "
+                    "contacts are there?', show or list records, get a record by its "
                     "quoted name, your vacation balance, or a product's stock and location."
                     if english else
-                    "No entendí la consulta. Puedes pedirme, por ejemplo: cuántos productos/contactos hay, "
+                    "No entendí la consulta. Puedes preguntarme, por ejemplo: '¿Cuántos contactos hay?', "
                     "mostrar/listar registros, información de un registro con nombre entre comillas, "
                     "o tu saldo de vacaciones / el saldo de vacaciones de una persona (nombre completo)."
                 )
